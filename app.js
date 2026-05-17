@@ -26,6 +26,7 @@ const $ = id => document.getElementById(id);
 const fmt = n => new Intl.NumberFormat('vi-VN').format(n) + ' ₫';
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const formatThousand = val => (val || val === 0) ? new Intl.NumberFormat('vi-VN').format(val) : '';
 
 /* ===== CLOUD SYNC HELPERS ===== */
 window.sendToCloud = async function (payload) {
@@ -317,7 +318,7 @@ function showEntryForm(entry) {
     </div>
     <div class="form-group">
       <label>Số tiền (₫)</label>
-      <input type="number" id="fAmount" min="0" placeholder="Nhập số tiền" value="${entry ? entry.amount : ''}">
+      <input type="text" id="fAmount" placeholder="Nhập số tiền" value="${entry ? formatThousand(entry.amount) : ''}">
     </div>
     <div class="form-group">
       <label>Lý do / Ghi chú</label>
@@ -328,6 +329,14 @@ function showEntryForm(entry) {
     </div>
   `;
   openModal(isEdit ? 'Sửa giao dịch' : 'Thêm giao dịch mới', html);
+
+  const fAmt = $('fAmount');
+  if (fAmt) {
+    fAmt.addEventListener('input', function() {
+      const clean = this.value.replace(/\D/g, '');
+      this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+    });
+  }
 }
 
 window.updateCatOptions = function () {
@@ -354,7 +363,7 @@ window.saveEntry = function () {
   const type = $('fType').value;
   const date = $('fDate').value;
   const category = $('fCat').value;
-  const amount = parseInt($('fAmount').value);
+  const amount = parseInt($('fAmount').value.replace(/\D/g, '')) || 0;
   const reason = $('fReason').value.trim();
   if (!date || !amount || amount <= 0 || !reason) { toast('Vui lòng điền đầy đủ thông tin!', 'error'); return; }
 
