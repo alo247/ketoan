@@ -1,3 +1,8 @@
+/* ===== CLOUD CONFIGURATION ===== */
+// Nhập đường dẫn link Web App của Google Apps Script của bạn vào đây (sau khi deploy)
+// Ví dụ: const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
+const SCRIPT_URL = ''; 
+
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
   { username: 'admin', password: 'admin123', role: 'admin', label: 'Quản trị viên' },
@@ -22,10 +27,58 @@ const fmt = n => new Intl.NumberFormat('vi-VN').format(n) + ' ₫';
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-function loadData() {
-  state.users = JSON.parse(localStorage.getItem('tc_users') || 'null') || [...DEFAULT_USERS];
-  state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
+/* ===== CLOUD SYNC HELPERS ===== */
+window.sendToCloud = async function(payload) {
+  if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) return;
+  try {
+    const res = await fetch(SCRIPT_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'text/plain' }
+    });
+    const data = await res.json();
+    if (!data.success) {
+      console.error("Cloud action failed:", data.error);
+    }
+  } catch (err) {
+    console.error("Failed to send data to cloud:", err);
+    toast("Đồng bộ đám mây thất bại! Dữ liệu đã lưu tạm thời ở máy bạn.", "error");
+  }
+};
+
+async function loadData() {
+  const loadingId = 'cloudLoading';
+  let loadingEl = $(loadingId);
+  if (!loadingEl && SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
+    loadingEl = document.createElement('div');
+    loadingEl.id = loadingId;
+    loadingEl.innerHTML = '<div style="position:fixed;bottom:15px;right:15px;background:rgba(20,20,30,0.9);color:#38ef7d;padding:12px 20px;border-radius:30px;font-size:0.82rem;box-shadow:0 4px 15px rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;gap:8px;border:1px solid rgba(56,239,125,0.2);font-family:Inter,sans-serif;"><i class="fas fa-sync-alt fa-spin"></i> Đang tải dữ liệu đám mây...</div>';
+    document.body.appendChild(loadingEl);
+  }
+
+  try {
+    if (SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
+      const res = await fetch(SCRIPT_URL);
+      const data = await res.json();
+      state.entries = data.entries || [];
+      state.users = data.users || [...DEFAULT_USERS];
+      if (data.categories) saveCategories(data.categories);
+      
+      localStorage.setItem('tc_users', JSON.stringify(state.users));
+      localStorage.setItem('tc_entries', JSON.stringify(state.entries));
+    } else {
+      state.users = JSON.parse(localStorage.getItem('tc_users') || 'null') || [...DEFAULT_USERS];
+      state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
+    }
+  } catch (err) {
+    console.warn("Cloud load failed, using local storage:", err);
+    state.users = JSON.parse(localStorage.getItem('tc_users') || 'null') || [...DEFAULT_USERS];
+    state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
+  } finally {
+    if (loadingEl) loadingEl.remove();
+  }
 }
+
 function saveData() {
   localStorage.setItem('tc_users', JSON.stringify(state.users));
   localStorage.setItem('tc_entries', JSON.stringify(state.entries));
@@ -305,15 +358,21 @@ window.saveEntry = function () {
   const reason = $('fReason').value.trim();
   if (!date || !amount || amount <= 0 || !reason) { toast('Vui lòng điền đầy đủ thông tin!', 'error'); return; }
 
+  let entry;
   if (state.editingId) {
     const idx = state.entries.findIndex(e => e.id === state.editingId);
-    if (idx !== -1) state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason };
+    if (idx !== -1) {
+      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason };
+      entry = state.entries[idx];
+    }
     toast('Đã cập nhật giao dịch!');
   } else {
-    state.entries.push({ id: uid(), type, date, category, amount, reason, createdBy: state.currentUser.username, createdAt: new Date().toISOString() });
+    entry = { id: uid(), type, date, category, amount, reason, createdBy: state.currentUser.username, createdAt: new Date().toISOString() };
+    state.entries.push(entry);
     toast('Đã thêm giao dịch mới!');
   }
   saveData();
+  if (entry) window.sendToCloud({ action: 'saveEntry', entry });
   closeModal();
   updateJournalView();
   renderDashboard();
@@ -324,6 +383,7 @@ window.deleteEntry = function (id) {
   if (!confirm('Bạn có chắc muốn xoá giao dịch này?')) return;
   state.entries = state.entries.filter(e => e.id !== id);
   saveData();
+  window.sendToCloud({ action: 'deleteEntry', id });
   updateJournalView();
   renderDashboard();
   toast('Đã xoá giao dịch!');
@@ -524,6 +584,7 @@ window.changeUserRole = function(username, newRole) {
   u.role = newRole;
   u.label = labels[newRole] || newRole;
   saveData();
+  window.sendToCloud({ action: 'changeUserRole', username, role: newRole, label: u.label });
   renderSettings();
   toast(`Đã đổi quyền ${username} thành ${u.label}!`);
 };
@@ -546,8 +607,10 @@ window.saveNewUser = function () {
   const role = $('fNewRole').value;
   if (!username || !password) { toast('Điền đầy đủ thông tin!', 'error'); return; }
   if (state.users.find(u => u.username === username)) { toast('Tên đã tồn tại!', 'error'); return; }
-  state.users.push({ username, password, role, label: role === 'admin' ? 'Quản trị viên' : 'Chỉ xem' });
+  const newUser = { username, password, role, label: role === 'admin' ? 'Quản trị viên' : 'Chỉ xem' };
+  state.users.push(newUser);
   saveData();
+  window.sendToCloud({ action: 'saveUser', user: newUser });
   closeModal();
   renderSettings();
   toast('Đã thêm người dùng!');
@@ -557,6 +620,7 @@ window.deleteUser = function (username) {
   if (!confirm(`Xoá người dùng "${username}"?`)) return;
   state.users = state.users.filter(u => u.username !== username);
   saveData();
+  window.sendToCloud({ action: 'deleteUser', username });
   renderSettings();
   toast('Đã xoá người dùng!');
 };
@@ -661,6 +725,12 @@ $('btnRestore').addEventListener('change', function (e) {
         }
       }
       saveData();
+      window.sendToCloud({
+        action: 'restoreAll',
+        entries: state.entries,
+        users: state.users,
+        categories: getCategories()
+      });
       renderDashboard();
       updateJournalView();
       renderSettings();
@@ -676,6 +746,7 @@ $('btnClearData').addEventListener('click', () => {
   if (!confirm('XOÁ TẤT CẢ dữ liệu giao dịch? Hành động này không thể hoàn tác!')) return;
   state.entries = [];
   saveData();
+  window.sendToCloud({ action: 'clearJournal' });
   renderDashboard();
   updateJournalView();
   toast('Đã xoá tất cả giao dịch!', 'info');
@@ -687,6 +758,7 @@ $('btnClearJournal').addEventListener('click', () => {
   if (!confirm('XOÁ TOÀN BỘ sổ nhật ký chung? Hành động này không thể hoàn tác!')) return;
   state.entries = [];
   saveData();
+  window.sendToCloud({ action: 'clearJournal' });
   updateJournalView();
   renderDashboard();
   toast('Đã xoá toàn bộ nhật ký chung!', 'info');
@@ -699,11 +771,19 @@ $('btnGenDemo').addEventListener('click', () => {
   const demos = generateDemoEntries(1000);
   state.entries = state.entries.concat(demos);
   saveData();
+  window.sendToCloud({
+    action: 'restoreAll',
+    entries: state.entries,
+    users: state.users,
+    categories: getCategories()
+  });
   renderDashboard();
   updateJournalView();
   toast('Đã tạo 1000 mẫu dữ liệu demo!', 'success');
 });
 
 /* ===== INIT ===== */
-loadData();
-initLogin();
+(async function() {
+  await loadData();
+  initLogin();
+})();

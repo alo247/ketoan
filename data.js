@@ -97,6 +97,7 @@ window.saveCat = function(type) {
   if (cats[type].includes(name)) return toast('Danh mục đã tồn tại!', 'error');
   cats[type].push(name);
   saveCategories(cats);
+  if (window.sendToCloud) window.sendToCloud({ action: 'saveCat', type, name });
   closeModal();
   renderCategoryPage();
   toast('Đã thêm danh mục!');
@@ -111,6 +112,7 @@ window.updateCat = function(type, idx) {
   // Update existing entries with old category name
   state.entries.forEach(e => { if (e.type === type && e.category === oldName) e.category = name; });
   saveData();
+  if (window.sendToCloud) window.sendToCloud({ action: 'updateCat', type, idx, name, oldName });
   closeModal();
   renderCategoryPage();
   toast('Đã cập nhật danh mục!');
@@ -120,6 +122,7 @@ window.deleteCat = function(type, idx) {
   const cats = getCategories();
   cats[type].splice(idx, 1);
   saveCategories(cats);
+  if (window.sendToCloud) window.sendToCloud({ action: 'deleteCat', type, idx });
   renderCategoryPage();
   toast('Đã xoá danh mục!');
 };
