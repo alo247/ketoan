@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản Lý Thu Chi - Phần Mềm Kế Toán</title>
+    <meta name="description" content="Phần mềm quản lý thu chi đơn giản, hiện đại với tính năng tự động hoạch toán">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="xlsx.full.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="login-screen">
+        <div class="login-bg-animation">
+            <div class="floating-shape shape-1"></div>
+            <div class="floating-shape shape-2"></div>
+            <div class="floating-shape shape-3"></div>
+        </div>
+        <div class="login-card">
+            <div class="login-logo">
+                <i class="fas fa-wallet"></i>
+            </div>
+            <h1>Quản Lý Thu Chi</h1>
+            <p class="login-subtitle">Đăng nhập để tiếp tục</p>
+            <form id="loginForm" onsubmit="return false;">
+                <div class="form-group">
+                    <label><i class="fas fa-user"></i> Tên đăng nhập</label>
+                    <input type="text" id="loginUser" placeholder="Nhập tên đăng nhập" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label><i class="fas fa-lock"></i> Mật khẩu</label>
+                    <input type="password" id="loginPass" placeholder="Nhập mật khẩu">
+                </div>
+                <button type="submit" class="btn-login" id="btnLogin">
+                    <i class="fas fa-sign-in-alt"></i> Đăng Nhập
+                </button>
+                <div id="loginError" class="login-error"></div>
+            </form>
+            <div class="login-hint">
+                <p><strong>Admin:</strong> admin / admin123</p>
+                <p><strong>Xem:</strong> viewer / viewer123</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="main-app hidden">
+        <!-- SIDEBAR -->
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <i class="fas fa-wallet"></i>
+                <span>Thu Chi</span>
+            </div>
+            <ul class="sidebar-menu">
+                <li class="active" data-page="dashboard">
+                    <i class="fas fa-chart-pie"></i><span>Tổng quan</span>
+                </li>
+                <li data-page="journal">
+                    <i class="fas fa-book"></i><span>Nhật ký chung</span>
+                </li>
+                <li data-page="categories" id="menuCategories">
+                    <i class="fas fa-tags"></i><span>Danh mục</span>
+                </li>
+                <li data-page="reports">
+                    <i class="fas fa-chart-bar"></i><span>Báo cáo</span>
+                </li>
+                <li data-page="settings" id="menuSettings">
+                    <i class="fas fa-cog"></i><span>Cài đặt</span>
+                </li>
+            </ul>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <div>
+                        <span id="currentUserName">Admin</span>
+                        <small id="currentUserRole">Quản trị viên</small>
+                    </div>
+                </div>
+                <button class="btn-logout" id="btnLogout" title="Đăng xuất">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
+            </div>
+        </nav>
+
+        <!-- CONTENT -->
+        <main class="content">
+            <header class="top-bar">
+                <button class="btn-toggle-sidebar" id="btnToggleSidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h2 id="pageTitle">Tổng quan</h2>
+                <div class="top-bar-actions">
+                    <span id="todayDate"></span>
+                </div>
+            </header>
+
+            <!-- DASHBOARD PAGE -->
+            <section id="pageDashboard" class="page active">
+                <div class="stats-grid">
+                    <div class="stat-card income">
+                        <div class="stat-icon"><i class="fas fa-arrow-down"></i></div>
+                        <div class="stat-info">
+                            <small>Tổng Thu</small>
+                            <h3 id="statIncome">0 ₫</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card expense">
+                        <div class="stat-icon"><i class="fas fa-arrow-up"></i></div>
+                        <div class="stat-info">
+                            <small>Tổng Chi</small>
+                            <h3 id="statExpense">0 ₫</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card profit">
+                        <div class="stat-icon"><i class="fas fa-coins"></i></div>
+                        <div class="stat-info">
+                            <small>Lợi Nhuận</small>
+                            <h3 id="statProfit">0 ₫</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card count">
+                        <div class="stat-icon"><i class="fas fa-receipt"></i></div>
+                        <div class="stat-info">
+                            <small>Giao dịch</small>
+                            <h3 id="statCount">0</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="charts-grid">
+                    <div class="chart-card">
+                        <h4><i class="fas fa-chart-line"></i> Thu Chi Theo Tháng</h4>
+                        <canvas id="chartMonthly"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4><i class="fas fa-chart-doughnut"></i> Tỷ Lệ Thu / Chi</h4>
+                        <canvas id="chartRatio"></canvas>
+                    </div>
+                </div>
+                <div class="recent-card">
+                    <h4><i class="fas fa-clock"></i> Giao Dịch Gần Đây</h4>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Ngày</th><th>Loại</th><th>Số tiền</th><th>Lý do</th>
+                                </tr>
+                            </thead>
+                            <tbody id="recentTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- JOURNAL PAGE -->
+            <section id="pageJournal" class="page">
+                <div class="journal-toolbar">
+                    <div class="toolbar-left">
+                        <button class="btn btn-primary" id="btnAddEntry">
+                            <i class="fas fa-plus"></i> Thêm mới
+                        </button>
+                        <button class="btn btn-success" id="btnExport">
+                            <i class="fas fa-file-excel"></i> Xuất Excel
+                        </button>
+                        <label class="btn btn-info" id="btnImportLabel">
+                            <i class="fas fa-file-import"></i> Nhập Excel
+                            <input type="file" id="btnImport" accept=".xlsx,.xls" hidden>
+                        </label>
+                        <button class="btn btn-danger" id="btnClearJournal">
+                            <i class="fas fa-trash-alt"></i> Xoá tất cả
+                        </button>
+                    </div>
+                    <div class="toolbar-right">
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="searchInput" placeholder="Tìm kiếm...">
+                        </div>
+                        <select id="filterType" class="filter-select">
+                            <option value="all">Tất cả</option>
+                            <option value="thu">Thu</option>
+                            <option value="chi">Chi</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table class="journal-table">
+                        <thead>
+                            <tr>
+                                <th>STT</th><th>Ngày</th><th>Loại</th>
+                                <th>Danh mục</th><th>Số tiền</th>
+                                <th>Lý do</th><th>Người tạo</th><th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="journalTable"></tbody>
+                    </table>
+                </div>
+                <div class="journal-summary">
+                    <div><strong>Tổng thu:</strong> <span id="jSumIncome" class="text-green">0 ₫</span></div>
+                    <div><strong>Tổng chi:</strong> <span id="jSumExpense" class="text-red">0 ₫</span></div>
+                    <div><strong>Lợi nhuận:</strong> <span id="jSumProfit">0 ₫</span></div>
+                </div>
+            </section>
+
+            <!-- CATEGORIES PAGE -->
+            <section id="pageCategories" class="page">
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h4><i class="fas fa-arrow-down" style="color:var(--green)"></i> Danh Mục Thu</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead><tr><th>STT</th><th>Tên danh mục</th><th>Thao tác</th></tr></thead>
+                                <tbody id="catThuTable"></tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-success btn-sm" onclick="showAddCatForm('thu')" style="margin-top:12px">
+                            <i class="fas fa-plus"></i> Thêm danh mục thu
+                        </button>
+                    </div>
+                    <div class="settings-card">
+                        <h4><i class="fas fa-arrow-up" style="color:var(--red)"></i> Danh Mục Chi</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead><tr><th>STT</th><th>Tên danh mục</th><th>Thao tác</th></tr></thead>
+                                <tbody id="catChiTable"></tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-danger btn-sm" onclick="showAddCatForm('chi')" style="margin-top:12px">
+                            <i class="fas fa-plus"></i> Thêm danh mục chi
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- REPORTS PAGE -->
+            <section id="pageReports" class="page">
+                <div class="report-filters">
+                    <div class="form-group">
+                        <label>Từ ngày</label>
+                        <input type="date" id="rptFrom">
+                    </div>
+                    <div class="form-group">
+                        <label>Đến ngày</label>
+                        <input type="date" id="rptTo">
+                    </div>
+                    <button class="btn btn-primary" id="btnGenReport">
+                        <i class="fas fa-filter"></i> Lọc
+                    </button>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card income">
+                        <div class="stat-icon"><i class="fas fa-arrow-down"></i></div>
+                        <div class="stat-info">
+                            <small>Doanh Thu</small>
+                            <h3 id="rptIncome">0 ₫</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card expense">
+                        <div class="stat-icon"><i class="fas fa-arrow-up"></i></div>
+                        <div class="stat-info">
+                            <small>Chi Phí</small>
+                            <h3 id="rptExpense">0 ₫</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card profit">
+                        <div class="stat-icon"><i class="fas fa-coins"></i></div>
+                        <div class="stat-info">
+                            <small>Lợi Nhuận</small>
+                            <h3 id="rptProfit">0 ₫</h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="charts-grid">
+                    <div class="chart-card full">
+                        <h4><i class="fas fa-chart-area"></i> Biểu Đồ Thu Chi Theo Kỳ</h4>
+                        <canvas id="chartReport"></canvas>
+                    </div>
+                </div>
+                <div class="recent-card">
+                    <h4><i class="fas fa-list"></i> Chi Tiết Giao Dịch</h4>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr><th>Ngày</th><th>Loại</th><th>Danh mục</th><th>Số tiền</th><th>Lý do</th></tr>
+                            </thead>
+                            <tbody id="reportTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- SETTINGS PAGE -->
+            <section id="pageSettings" class="page">
+                <div class="settings-grid">
+                    <div class="settings-card">
+                        <h4><i class="fas fa-users"></i> Quản Lý Người Dùng & Phân Quyền</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr><th>Tên đăng nhập</th><th>Vai trò</th><th>Phân quyền</th><th>Thao tác</th></tr>
+                                </thead>
+                                <tbody id="usersTable"></tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-primary" id="btnAddUser" style="margin-top:12px">
+                            <i class="fas fa-user-plus"></i> Thêm người dùng
+                        </button>
+                    </div>
+                    <div class="settings-card">
+                        <h4><i class="fas fa-database"></i> Dữ Liệu</h4>
+                        <p>Sao lưu hoặc khôi phục toàn bộ dữ liệu dưới dạng JSON.</p>
+                        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
+                            <button class="btn btn-success" id="btnBackup">
+                                <i class="fas fa-download"></i> Sao lưu
+                            </button>
+                            <label class="btn btn-info">
+                                <i class="fas fa-upload"></i> Khôi phục
+                                <input type="file" id="btnRestore" accept=".json,.xlsx,.xls" hidden>
+                            </label>
+                            <button class="btn btn-danger" id="btnClearData">
+                                <i class="fas fa-trash"></i> Xoá tất cả dữ liệu
+                            </button>
+                        </div>
+                        <div style="margin-top:16px">
+                            <button class="btn btn-primary" id="btnGenDemo">
+                                <i class="fas fa-magic"></i> Tạo 1000 mẫu demo
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- MODAL -->
+    <div id="modal" class="modal-overlay hidden">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 id="modalTitle">Thêm giao dịch</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+        </div>
+    </div>
+
+    <!-- TOAST -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="data.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
