@@ -1,7 +1,7 @@
 /* ===== CLOUD CONFIGURATION ===== */
 // Nhập đường dẫn link Web App của Google Apps Script của bạn vào đây (sau khi deploy)
 // Ví dụ: const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
-const SCRIPT_URL = ''; 
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxHkqbjznAJGua8jziWZB99d6p9iZEtPCA45-F5e7hhBfKljStXG4eoEq130K2Z-CSJ/exec';
 
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
@@ -28,7 +28,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 /* ===== CLOUD SYNC HELPERS ===== */
-window.sendToCloud = async function(payload) {
+window.sendToCloud = async function (payload) {
   if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) return;
   try {
     const res = await fetch(SCRIPT_URL, {
@@ -63,7 +63,7 @@ async function loadData() {
       state.entries = data.entries || [];
       state.users = data.users || [...DEFAULT_USERS];
       if (data.categories) saveCategories(data.categories);
-      
+
       localStorage.setItem('tc_users', JSON.stringify(state.users));
       localStorage.setItem('tc_entries', JSON.stringify(state.entries));
     } else {
@@ -298,7 +298,7 @@ $('filterType')?.addEventListener('change', updateJournalView);
 function showEntryForm(entry) {
   const isEdit = !!entry;
   const cats = getCategories();
-  const catOptions = type => (cats[type]||[]).map(c => `<option value="${c}" ${entry && entry.category === c ? 'selected' : ''}>${c}</option>`).join('');
+  const catOptions = type => (cats[type] || []).map(c => `<option value="${c}" ${entry && entry.category === c ? 'selected' : ''}>${c}</option>`).join('');
   const html = `
     <div class="form-group">
       <label>Loại giao dịch</label>
@@ -333,7 +333,7 @@ function showEntryForm(entry) {
 window.updateCatOptions = function () {
   const type = $('fType').value;
   const cats = getCategories();
-  $('fCat').innerHTML = (cats[type]||[]).map(c => `<option value="${c}">${c}</option>`).join('');
+  $('fCat').innerHTML = (cats[type] || []).map(c => `<option value="${c}">${c}</option>`).join('');
 };
 
 $('btnAddEntry').addEventListener('click', () => {
@@ -476,7 +476,7 @@ $('btnImport').addEventListener('change', function (e) {
         let date = '';
         if (typeof rawDate === 'number') {
           const d = XLSX.SSF.parse_date_code(rawDate);
-          date = `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`;
+          date = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
         } else {
           date = String(rawDate);
           if (/^\d{2}\/\d{2}\/\d{4}$/.test(date)) {
@@ -571,16 +571,16 @@ function renderSettings() {
     <tr>
       <td>${u.username}</td>
       <td><span class="badge" style="background:rgba(102,126,234,.2);color:var(--primary)">${u.label}</span></td>
-      <td>${u.username !== 'admin' ? `<select class="filter-select" onchange="changeUserRole('${u.username}',this.value)" style="padding:6px 10px;font-size:.78rem"><option value="admin" ${u.role==='admin'?'selected':''}>Quản trị viên</option><option value="editor" ${u.role==='editor'?'selected':''}>Biên tập viên</option><option value="viewer" ${u.role==='viewer'?'selected':''}>Chỉ xem</option></select>` : '<span style="color:var(--text2)">Mặc định</span>'}</td>
+      <td>${u.username !== 'admin' ? `<select class="filter-select" onchange="changeUserRole('${u.username}',this.value)" style="padding:6px 10px;font-size:.78rem"><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Quản trị viên</option><option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Biên tập viên</option><option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Chỉ xem</option></select>` : '<span style="color:var(--text2)">Mặc định</span>'}</td>
       <td>${u.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.username}')"><i class="fas fa-trash"></i></button>` : '<span style="color:var(--text2)">-</span>'}</td>
     </tr>
   `).join('');
 }
 
-window.changeUserRole = function(username, newRole) {
+window.changeUserRole = function (username, newRole) {
   const u = state.users.find(x => x.username === username);
   if (!u) return;
-  const labels = {admin:'Quản trị viên', editor:'Biên tập viên', viewer:'Chỉ xem'};
+  const labels = { admin: 'Quản trị viên', editor: 'Biên tập viên', viewer: 'Chỉ xem' };
   u.role = newRole;
   u.label = labels[newRole] || newRole;
   saveData();
@@ -644,7 +644,7 @@ $('btnBackup').addEventListener('click', () => {
     'Date_raw': e.date
   }));
   const ws1 = XLSX.utils.json_to_sheet(entryData);
-  ws1['!cols'] = [{wch:6},{wch:14},{wch:8},{wch:22},{wch:18},{wch:35},{wch:14},{wch:16},{wch:22},{wch:12}];
+  ws1['!cols'] = [{ wch: 6 }, { wch: 14 }, { wch: 8 }, { wch: 22 }, { wch: 18 }, { wch: 35 }, { wch: 14 }, { wch: 16 }, { wch: 22 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws1, 'Nhật Ký Chung');
 
   // Sheet 2: Người dùng
@@ -655,16 +655,16 @@ $('btnBackup').addEventListener('click', () => {
     'Mật khẩu': u.password
   }));
   const ws2 = XLSX.utils.json_to_sheet(userData);
-  ws2['!cols'] = [{wch:16},{wch:16},{wch:10},{wch:16}];
+  ws2['!cols'] = [{ wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'Người Dùng');
 
   // Sheet 3: Danh mục
   const cats = getCategories();
   const catData = [];
-  (cats.thu || []).forEach(c => catData.push({'Loại':'Thu','Tên danh mục':c}));
-  (cats.chi || []).forEach(c => catData.push({'Loại':'Chi','Tên danh mục':c}));
+  (cats.thu || []).forEach(c => catData.push({ 'Loại': 'Thu', 'Tên danh mục': c }));
+  (cats.chi || []).forEach(c => catData.push({ 'Loại': 'Chi', 'Tên danh mục': c }));
   const ws3 = XLSX.utils.json_to_sheet(catData);
-  ws3['!cols'] = [{wch:8},{wch:25}];
+  ws3['!cols'] = [{ wch: 8 }, { wch: 25 }];
   XLSX.utils.book_append_sheet(wb, ws3, 'Danh Mục');
 
   downloadExcel(wb, `SaoLuu_ThuChi_${today()}.xlsx`);
@@ -689,11 +689,11 @@ $('btnRestore').addEventListener('change', function (e) {
         if (wb.SheetNames.includes('Nhật Ký Chung')) {
           const rows = XLSX.utils.sheet_to_json(wb.Sheets['Nhật Ký Chung']);
           state.entries = rows.map(r => {
-            const typeRaw = (r['Loại']||'').toString().toLowerCase();
+            const typeRaw = (r['Loại'] || '').toString().toLowerCase();
             let date = r['Date_raw'] || '';
             if (!date) {
               const d = r['Ngày'] || '';
-              if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) { const [dd,mm,yy]=d.split('/'); date=`${yy}-${mm}-${dd}`; }
+              if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) { const [dd, mm, yy] = d.split('/'); date = `${yy}-${mm}-${dd}`; }
               else date = String(d);
             }
             return {
@@ -711,14 +711,14 @@ $('btnRestore').addEventListener('change', function (e) {
             role: r['Mã vai trò'] || 'viewer', label: r['Vai trò'] || 'Chỉ xem'
           })).filter(u => u.username);
           if (!state.users.find(u => u.username === 'admin')) {
-            state.users.unshift({ username:'admin', password:'admin123', role:'admin', label:'Quản trị viên' });
+            state.users.unshift({ username: 'admin', password: 'admin123', role: 'admin', label: 'Quản trị viên' });
           }
         }
         if (wb.SheetNames.includes('Danh Mục')) {
           const cRows = XLSX.utils.sheet_to_json(wb.Sheets['Danh Mục']);
           const cats = { thu: [], chi: [] };
           cRows.forEach(r => {
-            const t = (r['Loại']||'').toLowerCase().includes('thu') ? 'thu' : 'chi';
+            const t = (r['Loại'] || '').toLowerCase().includes('thu') ? 'thu' : 'chi';
             if (r['Tên danh mục']) cats[t].push(r['Tên danh mục']);
           });
           if (cats.thu.length || cats.chi.length) saveCategories(cats);
@@ -783,7 +783,7 @@ $('btnGenDemo').addEventListener('click', () => {
 });
 
 /* ===== INIT ===== */
-(async function() {
+(async function () {
   await loadData();
   initLogin();
 })();
