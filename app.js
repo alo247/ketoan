@@ -283,10 +283,12 @@ function updateJournalView() {
       <td>${e.reason}</td>
       <td style="text-align:center">
         ${e.invoice ? (
-      e.invoice.startsWith('data:image/')
-        ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
-        : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`
-    ) : '<span style="color:var(--text2)">-</span>'}
+          e.invoice === 'pending'
+            ? `<span style="color:var(--text2);font-size:0.75rem;display:inline-flex;align-items:center;gap:4px" title="Đang đồng bộ file lên Google Drive..."><i class="fas fa-spinner fa-spin"></i> Đang tải...</span>`
+            : (e.invoice.startsWith('data:image/')
+                ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
+                : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`)
+        ) : '<span style="color:var(--text2)">-</span>'}
       </td>
       <td>${e.createdBy || '-'}</td>
       <td>${admin ? `<button class="btn btn-primary btn-sm" onclick="editEntry('${e.id}')"><i class="fas fa-edit"></i></button> <button class="btn btn-danger btn-sm" onclick="deleteEntry('${e.id}')"><i class="fas fa-trash"></i></button>` : '-'}</td>
@@ -346,15 +348,15 @@ function showEntryForm(entry) {
         <button type="button" class="btn" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:6px 12px;font-size:0.8rem;border-radius:6px;cursor:pointer" onclick="$('fInvoiceFile').click()"><i class="fas fa-upload"></i> Chọn file chứng từ</button>
         <span id="fInvoiceStatus" style="font-size:0.78rem;color:var(--text2)">
           ${entry && entry.invoice
-      ? (entry.invoice.startsWith('http') ? 'Đã lưu trên Google Drive' : 'Đã chọn file')
-      : 'Chưa chọn file'}
+            ? (entry.invoice === 'pending' ? 'Đang đồng bộ lên Google Drive...' : (entry.invoice.startsWith('http') ? 'Đã lưu trên Google Drive' : 'Đã chọn file'))
+            : 'Chưa chọn file'}
         </span>
       </div>
       <div id="fInvoicePreviewContainer" style="display:${entry && entry.invoice ? 'block' : 'none'};position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
         <img id="fInvoicePreview" src="${entry && entry.invoice
-      ? (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png')
-      : ''
-    }" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="${entry && entry.invoice && entry.invoice.startsWith('http') ? 'Click để xem chi tiết trên Google Drive' : ''}">
+          ? (entry.invoice === 'pending' ? 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png' : (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png'))
+          : ''
+        }" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="${entry && entry.invoice && entry.invoice.startsWith('http') ? 'Click để xem chi tiết trên Google Drive' : ''}">
         <button type="button" class="btn btn-danger" onclick="clearInvoiceSelection()" style="position:absolute;top:5px;right:5px;padding:3px 6px;font-size:0.65rem;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;background:#ef4444;color:#fff"><i class="fas fa-times"></i></button>
       </div>
     </div>
