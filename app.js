@@ -273,10 +273,13 @@ function updateJournalView() {
       <td>${e.category}</td>
       <td style="color:${e.type === 'thu' ? 'var(--green)' : 'var(--red)'};font-weight:600">${e.type === 'thu' ? '+' : '-'}${fmt(e.amount)}</td>
       <td>${e.reason}</td>
+      <td style="text-align:center">
+        ${e.invoice ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">` : '<span style="color:var(--text2)">-</span>'}
+      </td>
       <td>${e.createdBy || '-'}</td>
       <td>${admin ? `<button class="btn btn-primary btn-sm" onclick="editEntry('${e.id}')"><i class="fas fa-edit"></i></button> <button class="btn btn-danger btn-sm" onclick="deleteEntry('${e.id}')"><i class="fas fa-trash"></i></button>` : '-'}</td>
     </tr>
-  `).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:30px">Không có dữ liệu</td></tr>';
+  `).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:30px">Không có dữ liệu</td></tr>';
 
   // Sums
   const s = calcStats(list);
@@ -324,10 +327,23 @@ function showEntryForm(entry) {
       <label>Lý do / Ghi chú</label>
       <textarea id="fReason" placeholder="Mô tả giao dịch...">${entry ? entry.reason : ''}</textarea>
     </div>
+    <div class="form-group">
+      <label>Hóa đơn / Chứng từ đối chứng (Tùy chọn)</label>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <input type="file" id="fInvoiceFile" accept="image/*" style="display:none">
+        <button type="button" class="btn" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:6px 12px;font-size:0.8rem;border-radius:6px;cursor:pointer" onclick="$('fInvoiceFile').click()"><i class="fas fa-upload"></i> Chọn ảnh hóa đơn</button>
+        <span id="fInvoiceStatus" style="font-size:0.78rem;color:var(--text2)">${entry && entry.invoice ? 'Đã có hóa đơn cũ' : 'Chưa chọn ảnh'}</span>
+      </div>
+      <div id="fInvoicePreviewContainer" style="display:${entry && entry.invoice ? 'block' : 'none'};position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+        <img id="fInvoicePreview" src="${entry && entry.invoice ? entry.invoice : ''}" style="width:100%;height:100%;object-fit:cover">
+        <button type="button" class="btn btn-danger" onclick="clearInvoiceSelection()" style="position:absolute;top:5px;right:5px;padding:3px 6px;font-size:0.65rem;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;background:#ef4444;color:#fff"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveEntry()">${isEdit ? 'Cập nhật' : 'Thêm mới'}</button>
     </div>
   `;
+  state.selectedInvoice = entry ? (entry.invoice || '') : '';
   openModal(isEdit ? 'Sửa giao dịch' : 'Thêm giao dịch mới', html);
 
   const fAmt = $('fAmount');
@@ -335,6 +351,53 @@ function showEntryForm(entry) {
     fAmt.addEventListener('input', function() {
       const clean = this.value.replace(/\D/g, '');
       this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+    });
+  }
+
+  const fInvoiceFile = $('fInvoiceFile');
+  if (fInvoiceFile) {
+    fInvoiceFile.addEventListener('change', function(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        toast('Vui lòng chọn file hình ảnh (PNG, JPG, JPEG)!', 'error');
+        return;
+      }
+      
+      const reader = new FileReader();
+      reader.onload = function(event) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 600;
+          
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.6);
+          state.selectedInvoice = compressedBase64;
+          
+          $('fInvoiceStatus').textContent = file.name;
+          $('fInvoicePreview').src = compressedBase64;
+          $('fInvoicePreviewContainer').style.display = 'block';
+        };
+        img.src = event.target.result;
+      };
+      reader.readAsDataURL(file);
     });
   }
 }
@@ -367,16 +430,17 @@ window.saveEntry = function () {
   const reason = $('fReason').value.trim();
   if (!date || !amount || amount <= 0 || !reason) { toast('Vui lòng điền đầy đủ thông tin!', 'error'); return; }
 
+  const invoice = state.selectedInvoice || '';
   let entry;
   if (state.editingId) {
     const idx = state.entries.findIndex(e => e.id === state.editingId);
     if (idx !== -1) {
-      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason };
+      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice };
       entry = state.entries[idx];
     }
     toast('Đã cập nhật giao dịch!');
   } else {
-    entry = { id: uid(), type, date, category, amount, reason, createdBy: state.currentUser.username, createdAt: new Date().toISOString() };
+    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString() };
     state.entries.push(entry);
     toast('Đã thêm giao dịch mới!');
   }
@@ -385,6 +449,28 @@ window.saveEntry = function () {
   closeModal();
   updateJournalView();
   renderDashboard();
+};
+
+window.clearInvoiceSelection = function() {
+  state.selectedInvoice = '';
+  const fStatus = $('fInvoiceStatus');
+  if (fStatus) fStatus.textContent = 'Chưa chọn ảnh';
+  const fFile = $('fInvoiceFile');
+  if (fFile) fFile.value = '';
+  const fPrevContainer = $('fInvoicePreviewContainer');
+  if (fPrevContainer) fPrevContainer.style.display = 'none';
+};
+
+window.showInvoiceZoom = function(imgSrc) {
+  openModal('Chi tiết Hóa đơn / Chứng từ', `
+    <div style="text-align:center;padding:10px">
+      <img src="${imgSrc}" style="max-width:100%;max-height:70vh;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.3)">
+      <div style="margin-top:15px;display:flex;justify-content:center;gap:10px">
+        <a href="${imgSrc}" download="hoa_don_${Date.now()}.jpg" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none"><i class="fas fa-download"></i> Tải về hóa đơn</a>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal()">Đóng</button>
+      </div>
+    </div>
+  `);
 };
 
 window.deleteEntry = function (id) {
