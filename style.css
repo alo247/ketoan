@@ -118,6 +118,8 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
 .btn-success{background:linear-gradient(135deg,var(--green2),var(--green))}
 .btn-info{background:linear-gradient(135deg,var(--blue2),var(--blue))}
 .btn-danger{background:linear-gradient(135deg,var(--red2),var(--red))}
+.btn-secondary{background:rgba(255,255,255,0.08);color:var(--text);border:1px solid var(--card-border)}
+.btn-secondary:hover{background:rgba(255,255,255,0.15)}
 .btn-sm{padding:6px 12px;font-size:.78rem;border-radius:8px}
 .search-box{display:flex;align-items:center;background:rgba(255,255,255,.06);border:1px solid var(--card-border);border-radius:10px;padding:0 12px;transition:var(--transition)}
 .search-box:focus-within{border-color:var(--primary)}
