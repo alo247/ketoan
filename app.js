@@ -69,7 +69,21 @@ async function loadData() {
     if (SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
       const res = await fetch(SCRIPT_URL);
       const data = await res.json();
-      state.entries = data.entries || [];
+      
+      const serverEntries = data.entries || [];
+      const localEntries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
+      
+      // Bảo vệ hóa đơn cục bộ không bị ghi đè bởi cột rỗng từ server
+      state.entries = serverEntries.map(se => {
+        const le = localEntries.find(x => x.id === se.id);
+        if (le && le.invoice && !se.invoice) {
+          if (le.invoice.startsWith('data:')) {
+            return { ...se, invoice: le.invoice };
+          }
+        }
+        return se;
+      });
+      
       state.users = data.users || [...DEFAULT_USERS];
       if (data.categories) saveCategories(data.categories);
 
