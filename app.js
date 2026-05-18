@@ -600,8 +600,19 @@ async function downloadExcel(wb, filename) {
 
 /* ===== EXPORT EXCEL ===== */
 $('btnExport').addEventListener('click', () => {
-  if (!state.entries.length) { toast('Không có dữ liệu để xuất!', 'error'); return; }
-  const sorted = [...state.entries].sort((a, b) => a.date.localeCompare(b.date));
+  const search = ($('searchInput')?.value || '').toLowerCase();
+  const filter = $('filterType')?.value || 'all';
+  const startDate = $('filterStartDate')?.value || '';
+  const endDate = $('filterEndDate')?.value || '';
+
+  let list = [...state.entries];
+  if (filter !== 'all') list = list.filter(e => e.type === filter);
+  if (startDate) list = list.filter(e => e.date >= startDate);
+  if (endDate) list = list.filter(e => e.date <= endDate);
+  if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
+
+  if (!list.length) { toast('Không có dữ liệu khớp bộ lọc để xuất!', 'error'); return; }
+  const sorted = list.sort((a, b) => a.date.localeCompare(b.date));
   const data = sorted.map((e, i) => ({
     'STT': i + 1,
     'Ngày': formatDate(e.date),
