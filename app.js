@@ -40,13 +40,18 @@ window.sendToCloud = async function (payload) {
     const data = await res.json();
     if (!data.success) {
       console.error("Cloud action failed:", data.error);
-    } else if (data.invoiceUrl && payload.entry) {
-      const entryId = payload.entry.id;
-      const idx = state.entries.findIndex(e => e.id === entryId);
-      if (idx !== -1) {
-        state.entries[idx].invoice = data.invoiceUrl;
-        saveData();
-        updateJournalView();
+    } else {
+      if (data.driveError) {
+        toast("Giao dịch đã lưu, nhưng chứng từ lưu Drive thất bại do lỗi phân quyền Apps Script!", "error");
+      }
+      if (data.invoiceUrl && payload.entry) {
+        const entryId = payload.entry.id;
+        const idx = state.entries.findIndex(e => e.id === entryId);
+        if (idx !== -1) {
+          state.entries[idx].invoice = data.invoiceUrl;
+          saveData();
+          updateJournalView();
+        }
       }
     }
   } catch (err) {
