@@ -64,9 +64,6 @@
                 <li data-page="reports">
                     <i class="fas fa-chart-bar"></i><span>Báo cáo</span>
                 </li>
-                <li data-page="taxpayer" id="menuTaxpayer">
-                    <i class="fas fa-search-dollar"></i><span>Tra cứu MST</span>
-                </li>
                 <li data-page="settings" id="menuSettings">
                     <i class="fas fa-cog"></i><span>Cài đặt</span>
                 </li>
@@ -334,95 +331,6 @@
                             <button class="btn btn-primary" id="btnGenDemo">
                                 <i class="fas fa-magic"></i> Tạo 1000 mẫu demo
                             </button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <!-- TAXPAYER PAGE -->
-            <section id="pageTaxpayer" class="page">
-                <div class="settings-grid">
-                    <div class="settings-card" style="grid-column: 1 / -1">
-                        <h4><i class="fas fa-search-dollar" style="color:var(--green)"></i> Tra Cứu Thông Tin Người Nộp Thuế</h4>
-                        <p>Nhập mã số thuế (MST) của doanh nghiệp để lấy thông tin đăng ký chính thức từ Tổng cục Thuế Việt Nam.</p>
-                        
-                        <div class="journal-toolbar" style="margin-top:20px; background:rgba(255,255,255,0.02); padding:16px; border-radius:12px; border:1px solid var(--border)">
-                            <div class="toolbar-left" style="flex:1; display:flex; gap:12px; align-items:center; flex-wrap:wrap">
-                                <div class="search-box" style="flex:1; min-width:280px; max-width:500px">
-                                    <i class="fas fa-id-card"></i>
-                                    <input type="text" id="taxCodeInput" placeholder="Nhập mã số thuế cần tra cứu (ví dụ: 0100230799)..." style="width:100%">
-                                </div>
-                                <button class="btn btn-primary" id="btnSearchTaxpayer">
-                                    <i class="fas fa-search"></i> Tra cứu thông tin
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Trạng thái Loading -->
-                        <div id="taxpayerLoading" class="hidden" style="text-align:center; padding:40px; color:var(--text2)">
-                            <i class="fas fa-circle-notch fa-spin fa-2x" style="color:var(--green); margin-bottom:10px"></i>
-                            <p>Đang tìm kiếm thông tin từ cơ sở dữ liệu Tổng cục Thuế...</p>
-                        </div>
-
-                        <!-- Kết quả hiển thị -->
-                        <div id="taxpayerResult" class="hidden" style="margin-top:24px; animation: fadeIn 0.4s ease">
-                            <div style="background:rgba(255,255,255,0.03); border:1px solid var(--border); border-radius:12px; padding:24px">
-                                <h3 id="taxpayerName" style="color:var(--green); font-size:1.4rem; font-weight:700; margin-bottom:8px">CÔNG TY</h3>
-                                <p id="taxpayerShortName" style="color:var(--text2); font-size:0.9rem; margin-bottom:16px; font-style:italic"></p>
-                                
-                                <div class="table-wrapper" style="margin-top:16px">
-                                    <table class="journal-table">
-                                        <tbody>
-                                            <tr>
-                                                <td style="width:220px; font-weight:600; color:var(--text2)">Mã số thuế:</td>
-                                                <td id="taxpayerCode" style="font-weight:700; color:#fff; font-size:1.1rem">0100230799</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Địa chỉ đăng ký:</td>
-                                                <td>
-                                                    <span id="taxpayerAddress"></span>
-                                                    <button class="btn btn-primary btn-sm" onclick="copyText('taxpayerAddress')" style="padding:2px 8px; font-size:0.7rem; margin-left:8px; display:inline-flex; align-items:center; gap:4px">
-                                                        <i class="fas fa-copy"></i> Sao chép địa chỉ
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Người đại diện pháp luật:</td>
-                                                <td id="taxpayerOwner" style="font-weight:600; color:var(--green)">N/A</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Số điện thoại:</td>
-                                                <td id="taxpayerPhone" style="color:var(--text)">N/A</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Tình trạng hoạt động:</td>
-                                                <td><span id="taxpayerStatus" class="badge" style="background:rgba(56,239,125,.2);color:#20bf55;padding:4px 8px;border-radius:4px">N/A</span></td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Ngày hoạt động chính thức:</td>
-                                                <td id="taxpayerActiveDate" style="color:var(--text)">N/A</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Ngành nghề kinh doanh chính:</td>
-                                                <td id="taxpayerIndustry" style="color:var(--text); font-style:italic">N/A</td>
-                                            </tr>
-                                            <tr>
-                                                <td style="font-weight:600; color:var(--text2)">Tên quốc tế (tiếng Anh):</td>
-                                                <td id="taxpayerIntName" style="color:var(--text)">N/A</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                                
-                                <div style="margin-top:20px; display:flex; gap:12px; flex-wrap:wrap">
-                                    <button class="btn btn-success" onclick="createTransactionWithTaxpayer()">
-                                        <i class="fas fa-plus"></i> Tạo giao dịch với công ty này
-                                    </button>
-                                    <button class="btn btn-primary" onclick="copyText('taxpayerName')">
-                                        <i class="fas fa-copy"></i> Sao chép tên công ty
-                                    </button>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
