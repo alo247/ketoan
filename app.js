@@ -287,7 +287,11 @@ function updateJournalView() {
             ? `<span style="color:var(--text2);font-size:0.75rem;display:inline-flex;align-items:center;gap:4px" title="Đang đồng bộ file lên Google Drive..."><i class="fas fa-spinner fa-spin"></i> Đang tải...</span>`
             : (e.invoice.startsWith('data:image/')
                 ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
-                : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`)
+                : (e.invoice.startsWith('data:')
+                    ? `<a href="${e.invoice}" target="_blank" style="color:#1a73e8;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem file đính kèm"><i class="fas fa-file-alt"></i></a>`
+                    : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`
+                  )
+              )
         ) : '<span style="color:var(--text2)">-</span>'}
       </td>
       <td>${e.createdBy || '-'}</td>
@@ -398,7 +402,7 @@ function showEntryForm(entry) {
           size: file.size
         };
 
-        state.selectedInvoice = 'pending';
+        state.selectedInvoice = event.target.result;
 
         $('fInvoiceStatus').textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
         const isImage = file.type.startsWith('image/');
@@ -478,7 +482,7 @@ window.clearInvoiceSelection = function () {
 };
 
 window.openInvoiceLink = function () {
-  if (state.selectedInvoice && state.selectedInvoice.startsWith('http')) {
+  if (state.selectedInvoice && (state.selectedInvoice.startsWith('http') || state.selectedInvoice.startsWith('data:'))) {
     window.open(state.selectedInvoice, '_blank');
   }
 };
