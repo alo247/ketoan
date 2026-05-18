@@ -1,7 +1,7 @@
 /* ===== CLOUD CONFIGURATION ===== */
 // Nhập đường dẫn link Web App của Google Apps Script của bạn vào đây (sau khi deploy)
 // Ví dụ: const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxZn_rb396DlzkNLeVzxylqbqvV1HbwRpOPyh_zpGLq4b13ouUn92IRHyNktVpU2dfA/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwpjrAWo1HNP3WFHKvrwNyd9LCBkkUHc3L5sNkt8l69by90d6JhlxO9bfr6Wo6wk109/exec';
 
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
@@ -123,6 +123,28 @@ function toast(msg, type = 'success') {
 
 function isAdmin() { return state.currentUser && state.currentUser.role === 'admin'; }
 
+function hasPermission(perm) {
+  if (!state.currentUser) return false;
+  if (state.currentUser.role === 'admin') return true;
+
+  // Kiểm tra phân quyền chi tiết của người dùng
+  if (state.currentUser.permissions) {
+    const perms = typeof state.currentUser.permissions === 'string'
+      ? state.currentUser.permissions.split(',')
+      : state.currentUser.permissions;
+    return perms.includes(perm);
+  }
+
+  // Phân quyền mặc định nếu chưa được tùy chỉnh chi tiết
+  if (state.currentUser.role === 'editor') {
+    return ['view', 'add', 'edit', 'invoice', 'cats'].includes(perm);
+  }
+  if (state.currentUser.role === 'viewer') {
+    return ['view'].includes(perm);
+  }
+  return false;
+}
+
 /* ===== AUTH ===== */
 function initLogin() {
   $('btnLogin').addEventListener('click', () => {
@@ -141,14 +163,27 @@ function initLogin() {
 function onLogin() {
   $('currentUserName').textContent = state.currentUser.username;
   $('currentUserRole').textContent = state.currentUser.label;
-  if (!isAdmin()) {
+
+  // Hiển thị các mục menu bên dựa vào phân quyền chi tiết
+  if (hasPermission('users')) {
+    $('menuSettings').classList.remove('hidden');
+  } else {
     $('menuSettings').classList.add('hidden');
+  }
+
+  if (hasPermission('cats')) {
+    $('menuCategories').classList.remove('hidden');
+  } else {
     $('menuCategories').classList.add('hidden');
+  }
+
+  // Ẩn/hiện các phần chỉ dành riêng cho Admin tối cao
+  if (!isAdmin()) {
     document.querySelectorAll('.admin-only').forEach(el => el.classList.add('hidden'));
   } else {
-    $('menuSettings').classList.remove('hidden');
-    $('menuCategories').classList.remove('hidden');
+    document.querySelectorAll('.admin-only').forEach(el => el.classList.remove('hidden'));
   }
+
   $('todayDate').textContent = new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   renderDashboard();
   updateJournalView();
@@ -302,32 +337,41 @@ function updateJournalView() {
   if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
   list.sort((a, b) => b.date.localeCompare(a.date));
 
-  const admin = isAdmin();
-  $('journalTable').innerHTML = list.map((e, i) => `
-    <tr>
-      <td>${i + 1}</td>
-      <td>${formatDate(e.date)}</td>
-      <td><span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span></td>
-      <td>${e.category}</td>
-      <td style="color:${e.type === 'thu' ? 'var(--green)' : 'var(--red)'};font-weight:600">${e.type === 'thu' ? '+' : '-'}${fmt(e.amount)}</td>
-      <td>${e.reason}</td>
-      <td style="text-align:center">
-        ${e.invoice ? (
-      e.invoice === 'pending'
-        ? `<span style="color:var(--text2);font-size:0.75rem;display:inline-flex;align-items:center;gap:4px" title="Đang đồng bộ file lên Google Drive..."><i class="fas fa-spinner fa-spin"></i> Đang tải...</span>`
-        : (e.invoice.startsWith('data:image/')
-          ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
-          : (e.invoice.startsWith('data:')
-            ? `<a href="${e.invoice}" target="_blank" style="color:#1a73e8;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem file đính kèm"><i class="fas fa-file-alt"></i></a>`
-            : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`
+  const canEdit = hasPermission('edit');
+  const canDelete = hasPermission('delete');
+
+  $('journalTable').innerHTML = list.map((e, i) => {
+    let actionButtons = [];
+    if (canEdit) actionButtons.push(`<button class="btn btn-primary btn-sm" onclick="editEntry('${e.id}')" title="Sửa giao dịch"><i class="fas fa-edit"></i></button>`);
+    if (canDelete) actionButtons.push(`<button class="btn btn-danger btn-sm" onclick="deleteEntry('${e.id}')" title="Xóa giao dịch"><i class="fas fa-trash"></i></button>`);
+    const actionsHtml = actionButtons.length ? actionButtons.join(' ') : '<span style="color:var(--text2)">-</span>';
+
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${formatDate(e.date)}</td>
+        <td><span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span></td>
+        <td>${e.category}</td>
+        <td style="color:${e.type === 'thu' ? 'var(--green)' : 'var(--red)'};font-weight:600">${e.type === 'thu' ? '+' : '-'}${fmt(e.amount)}</td>
+        <td>${e.reason}</td>
+        <td style="text-align:center">
+          ${e.invoice ? (
+        e.invoice === 'pending'
+          ? `<span style="color:var(--text2);font-size:0.75rem;display:inline-flex;align-items:center;gap:4px" title="Đang đồng bộ file lên Google Drive..."><i class="fas fa-spinner fa-spin"></i> Đang tải...</span>`
+          : (e.invoice.startsWith('data:image/')
+            ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
+            : (e.invoice.startsWith('data:')
+              ? `<a href="${e.invoice}" target="_blank" style="color:#1a73e8;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem file đính kèm"><i class="fas fa-file-alt"></i></a>`
+              : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`
+            )
           )
-        )
-    ) : '<span style="color:var(--text2)">-</span>'}
-      </td>
-      <td>${e.createdBy || '-'}</td>
-      <td>${admin ? `<button class="btn btn-primary btn-sm" onclick="editEntry('${e.id}')"><i class="fas fa-edit"></i></button> <button class="btn btn-danger btn-sm" onclick="deleteEntry('${e.id}')"><i class="fas fa-trash"></i></button>` : '-'}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:30px">Không có dữ liệu</td></tr>';
+      ) : '<span style="color:var(--text2)">-</span>'}
+        </td>
+        <td>${e.createdBy || '-'}</td>
+        <td>${actionsHtml}</td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="9" style="text-align:center;color:var(--text2);padding:30px">Không có dữ liệu</td></tr>';
 
   // Sums
   const s = calcStats(list);
@@ -336,10 +380,19 @@ function updateJournalView() {
   $('jSumProfit').textContent = fmt(s.profit);
   $('jSumProfit').style.color = s.profit >= 0 ? 'var(--green)' : 'var(--red)';
 
-  // Admin-only buttons
-  if (!admin) {
+  // Cấu hình hiển thị các nút chức năng ở đầu thanh công cụ dựa vào phân quyền
+  if (hasPermission('add')) {
+    $('btnAddEntry')?.classList.remove('hidden');
+  } else {
     $('btnAddEntry')?.classList.add('hidden');
+  }
+
+  if (hasPermission('users')) {
+    $('btnImportLabel')?.classList.remove('hidden');
+    $('btnClearJournal')?.classList.remove('hidden');
+  } else {
     $('btnImportLabel')?.classList.add('hidden');
+    $('btnClearJournal')?.classList.add('hidden');
   }
 }
 
@@ -386,22 +439,37 @@ function showEntryForm(entry) {
     </div>
     <div class="form-group">
       <label>Hóa đơn / Chứng từ đối chứng (Tùy chọn - Mọi định dạng file, lưu trên Drive)</label>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
-        <input type="file" id="fInvoiceFile" style="display:none">
-        <button type="button" class="btn" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:6px 12px;font-size:0.8rem;border-radius:6px;cursor:pointer" onclick="$('fInvoiceFile').click()"><i class="fas fa-upload"></i> Chọn file chứng từ</button>
-        <span id="fInvoiceStatus" style="font-size:0.78rem;color:var(--text2)">
-          ${entry && entry.invoice
-      ? (entry.invoice === 'pending' ? 'Đang đồng bộ lên Google Drive...' : (entry.invoice.startsWith('http') ? 'Đã lưu trên Google Drive' : 'Đã chọn file'))
-      : 'Chưa chọn file'}
-        </span>
-      </div>
-      <div id="fInvoicePreviewContainer" style="display:${entry && entry.invoice ? 'block' : 'none'};position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
-        <img id="fInvoicePreview" src="${entry && entry.invoice
-      ? (entry.invoice === 'pending' ? 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png' : (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png'))
-      : ''
-    }" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="${entry && entry.invoice && entry.invoice.startsWith('http') ? 'Click để xem chi tiết trên Google Drive' : ''}">
-        <button type="button" class="btn btn-danger" onclick="clearInvoiceSelection()" style="position:absolute;top:5px;right:5px;padding:3px 6px;font-size:0.65rem;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;background:#ef4444;color:#fff"><i class="fas fa-times"></i></button>
-      </div>
+      ${hasPermission('invoice') ? `
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <input type="file" id="fInvoiceFile" style="display:none">
+          <button type="button" class="btn" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:6px 12px;font-size:0.8rem;border-radius:6px;cursor:pointer" onclick="$('fInvoiceFile').click()"><i class="fas fa-upload"></i> Chọn file chứng từ</button>
+          <span id="fInvoiceStatus" style="font-size:0.78rem;color:var(--text2)">
+            ${entry && entry.invoice
+        ? (entry.invoice === 'pending' ? 'Đang đồng bộ lên Google Drive...' : (entry.invoice.startsWith('http') ? 'Đã lưu trên Google Drive' : 'Đã chọn file'))
+        : 'Chưa chọn file'}
+          </span>
+        </div>
+        <div id="fInvoicePreviewContainer" style="display:${entry && entry.invoice ? 'block' : 'none'};position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+          <img id="fInvoicePreview" src="${entry && entry.invoice
+        ? (entry.invoice === 'pending' ? 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png' : (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png'))
+        : ''
+      }" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="${entry && entry.invoice && entry.invoice.startsWith('http') ? 'Click để xem chi tiết trên Google Drive' : ''}">
+          <button type="button" class="btn btn-danger" onclick="clearInvoiceSelection()" style="position:absolute;top:5px;right:5px;padding:3px 6px;font-size:0.65rem;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;background:#ef4444;color:#fff"><i class="fas fa-times"></i></button>
+        </div>
+      ` : `
+        ${entry && entry.invoice ? `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-size:0.78rem;color:var(--text2)"><i class="fas fa-info-circle"></i> Bạn không có quyền sửa đổi chứng từ. Chỉ có thể xem bên dưới.</span>
+          </div>
+          <div id="fInvoicePreviewContainer" style="position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
+            <img id="fInvoicePreview" src="${entry.invoice === 'pending' ? 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png' : (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png')}" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="Click để xem chi tiết">
+          </div>
+        ` : `
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+            <span style="font-size:0.78rem;color:var(--text2)"><i class="fas fa-lock"></i> Bạn không có quyền đính kèm chứng từ cho giao dịch này.</span>
+          </div>
+        `}
+      `}
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" onclick="saveEntry()">${isEdit ? 'Cập nhật' : 'Thêm mới'}</button>
@@ -467,13 +535,13 @@ window.updateCatOptions = function () {
 };
 
 $('btnAddEntry').addEventListener('click', () => {
-  if (!isAdmin()) return toast('Bạn không có quyền!', 'error');
+  if (!hasPermission('add')) return toast('Bạn không có quyền!', 'error');
   state.editingId = null;
   showEntryForm(null);
 });
 
 window.editEntry = function (id) {
-  if (!isAdmin()) return;
+  if (!hasPermission('edit')) return toast('Bạn không có quyền!', 'error');
   const entry = state.entries.find(e => e.id === id);
   if (!entry) return;
   state.editingId = id;
@@ -481,6 +549,11 @@ window.editEntry = function (id) {
 };
 
 window.saveEntry = function () {
+  if (state.editingId) {
+    if (!hasPermission('edit')) return toast('Bạn không có quyền sửa giao dịch!', 'error');
+  } else {
+    if (!hasPermission('add')) return toast('Bạn không có quyền thêm giao dịch mới!', 'error');
+  }
   const type = $('fType').value;
   const date = $('fDate').value;
   const category = $('fCat').value;
@@ -539,7 +612,7 @@ window.showInvoiceZoom = function (imgSrc) {
 };
 
 window.deleteEntry = function (id) {
-  if (!isAdmin()) return;
+  if (!hasPermission('delete')) return toast('Bạn không có quyền!', 'error');
   if (!confirm('Bạn có chắc muốn xoá giao dịch này?')) return;
   state.entries = state.entries.filter(e => e.id !== id);
   saveData();
@@ -736,39 +809,149 @@ function generateReport() {
 }
 
 /* ===== SETTINGS ===== */
+/* ===== SETTINGS ===== */
 function renderSettings() {
-  if (!isAdmin()) return;
-  $('usersTable').innerHTML = state.users.map(u => `
-    <tr>
-      <td>${u.username}</td>
-      <td><span class="badge" style="background:rgba(102,126,234,.2);color:var(--primary)">${u.label}</span></td>
-      <td>${u.username !== 'admin' ? `<select class="filter-select" onchange="changeUserRole('${u.username}',this.value)" style="padding:6px 10px;font-size:.78rem"><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Quản trị viên</option><option value="editor" ${u.role === 'editor' ? 'selected' : ''}>Biên tập viên</option><option value="viewer" ${u.role === 'viewer' ? 'selected' : ''}>Chỉ xem</option></select>` : '<span style="color:var(--text2)">Mặc định</span>'}</td>
-      <td>${u.username !== 'admin' ? `<button class="btn btn-danger btn-sm" onclick="deleteUser('${u.username}')"><i class="fas fa-trash"></i></button>` : '<span style="color:var(--text2)">-</span>'}</td>
-    </tr>
-  `).join('');
+  if (!hasPermission('users')) return;
+  $('usersTable').innerHTML = state.users.map(u => {
+    // Phân tích danh sách quyền đang có
+    const perms = u.permissions
+      ? (typeof u.permissions === 'string' ? u.permissions.split(',') : u.permissions)
+      : (u.role === 'admin' ? ['view', 'add', 'edit', 'delete', 'invoice', 'users', 'cats'] : (u.role === 'editor' ? ['view', 'add', 'edit', 'invoice', 'cats'] : ['view']));
+
+    const permMap = {
+      view: 'Xem',
+      add: 'Ghi',
+      edit: 'Sửa',
+      delete: 'Xóa',
+      invoice: 'Drive',
+      cats: 'D.Mục',
+      users: 'User'
+    };
+
+    const permBadges = perms.map(p => {
+      const colorMap = {
+        view: 'rgba(58,123,213,.2);color:#3a7bd5',
+        add: 'rgba(56,239,125,.2);color:#20bf55',
+        edit: 'rgba(247,151,30,.2);color:#f7971e',
+        delete: 'rgba(255,88,88,.2);color:#ff5858',
+        invoice: 'rgba(0,210,255,.2);color:#00d2ff',
+        cats: 'rgba(118,75,162,.2);color:#764ba2',
+        users: 'rgba(255,88,88,.2);color:#ff5858'
+      };
+      return `<span class="badge" style="background:${colorMap[p] || 'rgba(255,255,255,.1);color:#ccc'};font-size:0.7rem;margin:1px;padding:2px 6px;border-radius:4px;display:inline-block">${permMap[p] || p}</span>`;
+    }).join(' ');
+
+    return `
+      <tr>
+        <td><strong>${u.username}</strong></td>
+        <td><span class="badge" style="background:rgba(102,126,234,.2);color:var(--primary)">${u.label}</span></td>
+        <td style="white-space:normal;max-width:280px;line-height:1.6;">${permBadges}</td>
+        <td>
+          ${u.username !== 'admin' ? `
+            <button class="btn btn-primary btn-sm" onclick="editUserPermissions('${u.username}')" title="Tùy chỉnh quyền chi tiết" style="padding:4px 8px;font-size:0.75rem;margin-right:4px">
+              <i class="fas fa-user-shield"></i> Quyền
+            </button>
+            <button class="btn btn-danger btn-sm" onclick="deleteUser('${u.username}')" title="Xóa người dùng" style="padding:4px 8px;font-size:0.75rem">
+              <i class="fas fa-trash-alt"></i>
+            </button>
+          ` : '<span style="color:var(--text2)">Mặc định (Toàn quyền)</span>'}
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
-window.changeUserRole = function (username, newRole) {
+window.editUserPermissions = function (username) {
   const u = state.users.find(x => x.username === username);
   if (!u) return;
-  const labels = { admin: 'Quản trị viên', editor: 'Biên tập viên', viewer: 'Chỉ xem' };
+
+  let activePerms = [];
+  if (u.permissions) {
+    activePerms = typeof u.permissions === 'string' ? u.permissions.split(',') : u.permissions;
+  } else {
+    if (u.role === 'admin') activePerms = ['view', 'add', 'edit', 'delete', 'invoice', 'users', 'cats'];
+    else if (u.role === 'editor') activePerms = ['view', 'add', 'edit', 'invoice', 'cats'];
+    else activePerms = ['view'];
+  }
+
+  const permissionsList = [
+    { key: 'view', label: 'Xem nhật ký & Báo cáo', desc: 'Quyền xem Dashboard, Báo cáo và Nhật ký chung.' },
+    { key: 'add', label: 'Ghi sổ nhật ký chung', desc: 'Quyền thêm mới giao dịch thu chi.' },
+    { key: 'edit', label: 'Sửa nhật ký chung', desc: 'Quyền chỉnh sửa thông tin giao dịch.' },
+    { key: 'delete', label: 'Xóa nhật ký chung', desc: 'Quyền xóa giao dịch hoặc xóa toàn bộ sổ.' },
+    { key: 'invoice', label: 'Cập nhật hóa đơn', desc: 'Quyền đính kèm/tải lên hóa đơn chứng từ.' },
+    { key: 'cats', label: 'Quản lý danh mục', desc: 'Quyền thêm, sửa, xóa danh mục thu chi.' },
+    { key: 'users', label: 'Quản lý thành viên', desc: 'Quyền thêm, xóa, phân quyền thành viên khác.' }
+  ];
+
+  const checklistHtml = permissionsList.map(p => {
+    const checked = activePerms.includes(p.key) ? 'checked' : '';
+    return `
+      <div class="perm-card" style="display:flex;align-items:flex-start;gap:12px;background:rgba(255,255,255,0.03);padding:12px 16px;border-radius:10px;border:1px solid var(--border);margin-bottom:10px;transition:var(--transition)">
+        <input type="checkbox" id="perm_${p.key}" class="perm-checkbox" value="${p.key}" ${checked} style="width:18px;height:18px;margin-top:2px;cursor:pointer">
+        <div style="flex:1;cursor:pointer" onclick="const cb = document.getElementById('perm_${p.key}'); cb.checked = !cb.checked;">
+          <label style="display:block;margin:0 0 2px 0;font-weight:600;font-size:0.88rem;color:var(--text);cursor:pointer">${p.label}</label>
+          <small style="color:var(--text2);font-size:0.75rem;line-height:1.4;display:block">${p.desc}</small>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  openModal(`Phân Quyền: ${u.username}`, `
+    <div style="max-height:60vh;overflow-y:auto;padding-right:4px">
+      <p style="font-size:0.82rem;color:var(--text2);margin-bottom:16px">Tùy chỉnh phân quyền chi tiết cho tài khoản <strong>${u.username}</strong>. Mọi thay đổi sẽ được đồng bộ lên đám mây ngay lập tức.</p>
+      <div class="perm-checklist">${checklistHtml}</div>
+    </div>
+    <div class="modal-actions" style="margin-top:20px">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveUserPermissions('${u.username}')"><i class="fas fa-save"></i> Lưu phân quyền</button>
+    </div>
+  `);
+};
+
+window.saveUserPermissions = function (username) {
+  const u = state.users.find(x => x.username === username);
+  if (!u) return;
+
+  const checkedCheckboxes = Array.from(document.querySelectorAll('.perm-checkbox:checked'));
+  const selectedPerms = checkedCheckboxes.map(cb => cb.value);
+
+  // Cập nhật vai trò phù hợp nhất dựa trên quyền hạn được chọn
+  let newRole = 'viewer';
+  let newLabel = 'Chỉ xem';
+
+  if (selectedPerms.includes('users')) {
+    newRole = 'admin';
+    newLabel = 'Quản trị viên';
+  } else if (selectedPerms.includes('add') || selectedPerms.includes('edit')) {
+    newRole = 'editor';
+    newLabel = 'Biên tập viên';
+  }
+
   u.role = newRole;
-  u.label = labels[newRole] || newRole;
+  u.label = newLabel;
+  u.permissions = selectedPerms.join(',');
+
   saveData();
-  window.sendToCloud({ action: 'changeUserRole', username, role: newRole, label: u.label });
+  window.sendToCloud({ action: 'saveUser', user: u });
+  closeModal();
   renderSettings();
-  toast(`Đã đổi quyền ${username} thành ${u.label}!`);
+  toast(`Đã cập nhật phân quyền cho tài khoản ${username}!`);
 };
 
 $('btnAddUser').addEventListener('click', () => {
-  if (!isAdmin()) return;
-  openModal('Thêm người dùng', `
-    <div class="form-group"><label>Tên đăng nhập</label><input type="text" id="fNewUser" placeholder="Nhập tên"></div>
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  openModal('Thêm người dùng mới', `
+    <div class="form-group"><label>Tên đăng nhập</label><input type="text" id="fNewUser" placeholder="Nhập tên đăng nhập"></div>
     <div class="form-group"><label>Mật khẩu</label><input type="password" id="fNewPass" placeholder="Nhập mật khẩu"></div>
-    <div class="form-group"><label>Vai trò</label>
-      <select id="fNewRole"><option value="admin">Quản trị viên</option><option value="viewer" selected>Chỉ xem</option></select>
+    <div class="form-group"><label>Mẫu vai trò mặc định</label>
+      <select id="fNewRole">
+        <option value="admin">Quản trị viên (Toàn quyền)</option>
+        <option value="editor">Biên tập viên (Ghi sổ, Sửa, Drive)</option>
+        <option value="viewer" selected>Chỉ xem</option>
+      </select>
     </div>
-    <div class="modal-actions"><button class="btn btn-primary" onclick="saveNewUser()">Thêm</button></div>
+    <div class="modal-actions"><button class="btn btn-primary" onclick="saveNewUser()"><i class="fas fa-plus"></i> Thêm người dùng</button></div>
   `);
 });
 
@@ -777,17 +960,30 @@ window.saveNewUser = function () {
   const password = $('fNewPass').value;
   const role = $('fNewRole').value;
   if (!username || !password) { toast('Điền đầy đủ thông tin!', 'error'); return; }
-  if (state.users.find(u => u.username === username)) { toast('Tên đã tồn tại!', 'error'); return; }
-  const newUser = { username, password, role, label: role === 'admin' ? 'Quản trị viên' : 'Chỉ xem' };
+  if (state.users.find(u => u.username === username)) { toast('Tên đăng nhập đã tồn tại!', 'error'); return; }
+
+  let permissions = 'view';
+  let label = 'Chỉ xem';
+  if (role === 'admin') {
+    permissions = 'view,add,edit,delete,invoice,users,cats';
+    label = 'Quản trị viên';
+  } else if (role === 'editor') {
+    permissions = 'view,add,edit,invoice,cats';
+    label = 'Biên tập viên';
+  }
+
+  const newUser = { username, password, role, label, permissions };
   state.users.push(newUser);
   saveData();
   window.sendToCloud({ action: 'saveUser', user: newUser });
   closeModal();
   renderSettings();
-  toast('Đã thêm người dùng!');
+  toast(`Đã thêm người dùng ${username} thành công!`);
 };
 
 window.deleteUser = function (username) {
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  if (username === 'admin') return toast('Không thể xóa tài khoản Quản trị viên tối cao!', 'error');
   if (!confirm(`Xoá người dùng "${username}"?`)) return;
   state.users = state.users.filter(u => u.username !== username);
   saveData();
@@ -843,7 +1039,7 @@ $('btnBackup').addEventListener('click', () => {
 });
 
 $('btnRestore').addEventListener('change', function (e) {
-  if (!isAdmin()) return;
+  if (!hasPermission('users')) { toast('Bạn không có quyền!', 'error'); return; }
   const file = e.target.files[0];
   if (!file) return;
   const fileExt = file.name.split('.').pop().toLowerCase();
@@ -925,7 +1121,7 @@ $('btnClearData').addEventListener('click', () => {
 
 /* ===== CLEAR JOURNAL (admin) ===== */
 $('btnClearJournal').addEventListener('click', () => {
-  if (!isAdmin()) return toast('Bạn không có quyền!', 'error');
+  if (!hasPermission('delete')) return toast('Bạn không có quyền!', 'error');
   if (!confirm('XOÁ TOÀN BỘ sổ nhật ký chung? Hành động này không thể hoàn tác!')) return;
   state.entries = [];
   saveData();
@@ -937,7 +1133,7 @@ $('btnClearJournal').addEventListener('click', () => {
 
 /* ===== GENERATE 1000 DEMO ===== */
 $('btnGenDemo').addEventListener('click', () => {
-  if (!isAdmin()) return;
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
   if (!confirm('Tạo 1000 mẫu dữ liệu demo? Dữ liệu hiện tại sẽ được giữ nguyên.')) return;
   const demos = generateDemoEntries(1000);
   state.entries = state.entries.concat(demos);

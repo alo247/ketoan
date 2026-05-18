@@ -63,7 +63,7 @@ function saveCategories(cats) { localStorage.setItem('tc_categories', JSON.strin
 
 function renderCategoryPage() {
   const cats = getCategories();
-  const adm = isAdmin();
+  const adm = hasPermission('cats');
   ['thu', 'chi'].forEach(type => {
     const tbody = $(type === 'thu' ? 'catThuTable' : 'catChiTable');
     if (!tbody) return;
@@ -75,14 +75,14 @@ function renderCategoryPage() {
 }
 
 window.showAddCatForm = function(type) {
-  if (!isAdmin()) return toast('Bạn không có quyền!', 'error');
+  if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
   openModal('Thêm danh mục ' + (type === 'thu' ? 'Thu' : 'Chi'), `
     <div class="form-group"><label>Tên danh mục</label><input type="text" id="fCatName" placeholder="Nhập tên danh mục"></div>
     <div class="modal-actions"><button class="btn btn-primary" onclick="saveCat('${type}')">Thêm</button></div>
   `);
 };
 window.showEditCatForm = function(type, idx) {
-  if (!isAdmin()) return;
+  if (!hasPermission('cats')) return;
   const cats = getCategories();
   const old = cats[type][idx];
   openModal('Sửa danh mục', `
@@ -91,6 +91,7 @@ window.showEditCatForm = function(type, idx) {
   `);
 };
 window.saveCat = function(type) {
+  if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
   const name = $('fCatName').value.trim();
   if (!name) return toast('Nhập tên danh mục!', 'error');
   const cats = getCategories();
@@ -103,6 +104,7 @@ window.saveCat = function(type) {
   toast('Đã thêm danh mục!');
 };
 window.updateCat = function(type, idx) {
+  if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
   const name = $('fCatName').value.trim();
   if (!name) return toast('Nhập tên danh mục!', 'error');
   const cats = getCategories();
@@ -118,6 +120,7 @@ window.updateCat = function(type, idx) {
   toast('Đã cập nhật danh mục!');
 };
 window.deleteCat = function(type, idx) {
+  if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
   if (!confirm('Xoá danh mục này?')) return;
   const cats = getCategories();
   cats[type].splice(idx, 1);
