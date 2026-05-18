@@ -286,8 +286,19 @@ function chartOpts(yLabel) {
 function updateJournalView() {
   const search = ($('searchInput')?.value || '').toLowerCase();
   const filter = $('filterType')?.value || 'all';
+  const startDate = $('filterStartDate')?.value || '';
+  const endDate = $('filterEndDate')?.value || '';
+
+  // Hiển thị/ẩn nút xóa bộ lọc ngày
+  const btnClear = $('btnClearDates');
+  if (btnClear) {
+    btnClear.style.display = (startDate || endDate) ? 'flex' : 'none';
+  }
+
   let list = [...state.entries];
   if (filter !== 'all') list = list.filter(e => e.type === filter);
+  if (startDate) list = list.filter(e => e.date >= startDate);
+  if (endDate) list = list.filter(e => e.date <= endDate);
   if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
   list.sort((a, b) => b.date.localeCompare(a.date));
 
@@ -334,6 +345,15 @@ function updateJournalView() {
 
 $('searchInput')?.addEventListener('input', updateJournalView);
 $('filterType')?.addEventListener('change', updateJournalView);
+$('filterStartDate')?.addEventListener('change', updateJournalView);
+$('filterEndDate')?.addEventListener('change', updateJournalView);
+$('btnClearDates')?.addEventListener('click', () => {
+  const startInput = $('filterStartDate');
+  const endInput = $('filterEndDate');
+  if (startInput) startInput.value = '';
+  if (endInput) endInput.value = '';
+  updateJournalView();
+});
 
 /* ADD / EDIT ENTRY */
 function showEntryForm(entry) {
