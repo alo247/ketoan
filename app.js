@@ -1,7 +1,7 @@
 /* ===== CLOUD CONFIGURATION ===== */
 // Nhập đường dẫn link Web App của Google Apps Script của bạn vào đây (sau khi deploy)
 // Ví dụ: const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyYtpTPN_PET4YPHsrSDQfnr_KZJpQjEJHMixQm-mvEnvY_8nMkLdnm1BslP_kyfmkK/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbx59GMmn3adqt3_fXGWIh1D-7rXzkwR7prz37AfMYyU062kSPc0eIvzpCLSPjuaGdCJ/exec';
 
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
@@ -283,10 +283,10 @@ function updateJournalView() {
       <td>${e.reason}</td>
       <td style="text-align:center">
         ${e.invoice ? (
-          e.invoice.startsWith('data:image/')
-            ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
-            : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`
-        ) : '<span style="color:var(--text2)">-</span>'}
+      e.invoice.startsWith('data:image/')
+        ? `<img src="${e.invoice}" onclick="showInvoiceZoom('${e.invoice}')" style="width:30px;height:30px;object-fit:cover;border-radius:4px;cursor:pointer;border:1px solid var(--border)" title="Click để phóng to">`
+        : `<a href="${e.invoice}" target="_blank" style="color:#34a853;font-size:1.15rem;display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);text-decoration:none" title="Xem chứng từ trên Google Drive"><i class="fab fa-google-drive"></i></a>`
+    ) : '<span style="color:var(--text2)">-</span>'}
       </td>
       <td>${e.createdBy || '-'}</td>
       <td>${admin ? `<button class="btn btn-primary btn-sm" onclick="editEntry('${e.id}')"><i class="fas fa-edit"></i></button> <button class="btn btn-danger btn-sm" onclick="deleteEntry('${e.id}')"><i class="fas fa-trash"></i></button>` : '-'}</td>
@@ -345,17 +345,16 @@ function showEntryForm(entry) {
         <input type="file" id="fInvoiceFile" style="display:none">
         <button type="button" class="btn" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);padding:6px 12px;font-size:0.8rem;border-radius:6px;cursor:pointer" onclick="$('fInvoiceFile').click()"><i class="fas fa-upload"></i> Chọn file chứng từ</button>
         <span id="fInvoiceStatus" style="font-size:0.78rem;color:var(--text2)">
-          ${entry && entry.invoice 
-            ? (entry.invoice.startsWith('http') ? 'Đã lưu trên Google Drive' : 'Đã chọn file') 
-            : 'Chưa chọn file'}
+          ${entry && entry.invoice
+      ? (entry.invoice.startsWith('http') ? 'Đã lưu trên Google Drive' : 'Đã chọn file')
+      : 'Chưa chọn file'}
         </span>
       </div>
       <div id="fInvoicePreviewContainer" style="display:${entry && entry.invoice ? 'block' : 'none'};position:relative;width:120px;height:120px;border-radius:8px;overflow:hidden;border:1px solid var(--border)">
-        <img id="fInvoicePreview" src="${
-          entry && entry.invoice 
-            ? (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png') 
-            : ''
-        }" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="${entry && entry.invoice && entry.invoice.startsWith('http') ? 'Click để xem chi tiết trên Google Drive' : ''}">
+        <img id="fInvoicePreview" src="${entry && entry.invoice
+      ? (entry.invoice.startsWith('data:image/') ? entry.invoice : 'https://cdn-icons-png.flaticon.com/512/2965/2965327.png')
+      : ''
+    }" style="width:100%;height:100%;object-fit:cover;cursor:pointer" onclick="openInvoiceLink()" title="${entry && entry.invoice && entry.invoice.startsWith('http') ? 'Click để xem chi tiết trên Google Drive' : ''}">
         <button type="button" class="btn btn-danger" onclick="clearInvoiceSelection()" style="position:absolute;top:5px;right:5px;padding:3px 6px;font-size:0.65rem;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;border:none;cursor:pointer;background:#ef4444;color:#fff"><i class="fas fa-times"></i></button>
       </div>
     </div>
@@ -369,7 +368,7 @@ function showEntryForm(entry) {
 
   const fAmt = $('fAmount');
   if (fAmt) {
-    fAmt.addEventListener('input', function() {
+    fAmt.addEventListener('input', function () {
       const clean = this.value.replace(/\D/g, '');
       this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
     });
@@ -377,29 +376,29 @@ function showEntryForm(entry) {
 
   const fInvoiceFile = $('fInvoiceFile');
   if (fInvoiceFile) {
-    fInvoiceFile.addEventListener('change', function(e) {
+    fInvoiceFile.addEventListener('change', function (e) {
       const file = e.target.files[0];
       if (!file) return;
-      
+
       if (file.size > 20 * 1024 * 1024) {
         toast('Kích thước file quá lớn (Vui lòng chọn file dưới 20MB)!', 'error');
         return;
       }
-      
+
       const reader = new FileReader();
-      reader.onload = function(event) {
+      reader.onload = function (event) {
         const base64Data = event.target.result.split(',')[1];
-        
+
         state.selectedInvoiceFile = {
           name: file.name,
           mimeType: file.type || 'application/octet-stream',
           base64: base64Data,
           size: file.size
         };
-        
+
         state.selectedInvoice = 'pending';
-        
-        $('fInvoiceStatus').textContent = `${file.name} (${(file.size/1024/1024).toFixed(2)} MB)`;
+
+        $('fInvoiceStatus').textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
         const isImage = file.type.startsWith('image/');
         const fPreview = $('fInvoicePreview');
         if (isImage) {
@@ -465,7 +464,7 @@ window.saveEntry = function () {
   renderDashboard();
 };
 
-window.clearInvoiceSelection = function() {
+window.clearInvoiceSelection = function () {
   state.selectedInvoice = '';
   state.selectedInvoiceFile = null;
   const fStatus = $('fInvoiceStatus');
@@ -476,13 +475,13 @@ window.clearInvoiceSelection = function() {
   if (fPrevContainer) fPrevContainer.style.display = 'none';
 };
 
-window.openInvoiceLink = function() {
+window.openInvoiceLink = function () {
   if (state.selectedInvoice && state.selectedInvoice.startsWith('http')) {
     window.open(state.selectedInvoice, '_blank');
   }
 };
 
-window.showInvoiceZoom = function(imgSrc) {
+window.showInvoiceZoom = function (imgSrc) {
   openModal('Chi tiết Hóa đơn / Chứng từ', `
     <div style="text-align:center;padding:10px">
       <img src="${imgSrc}" style="max-width:100%;max-height:70vh;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.3)">
