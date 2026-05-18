@@ -1,7 +1,7 @@
 /* ===== CLOUD CONFIGURATION ===== */
 // Nhập đường dẫn link Web App của Google Apps Script của bạn vào đây (sau khi deploy)
 // Ví dụ: const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw5AuzdOTBPCi2uNS_9N4evSqM5viFGhyqtZDSSgnliIqn4tm9vFxeMB745UzRbK02i/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxZn_rb396DlzkNLeVzxylqbqvV1HbwRpOPyh_zpGLq4b13ouUn92IRHyNktVpU2dfA/exec';
 
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
