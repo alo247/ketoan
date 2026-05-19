@@ -154,43 +154,42 @@
             <!-- JOURNAL PAGE -->
             <section id="pageJournal" class="page">
                 <div class="journal-toolbar">
-                    <div class="toolbar-left">
-                        <button class="btn btn-primary" id="btnAddEntry">
-                            <i class="fas fa-plus"></i> Thêm mới
-                        </button>
-                        <button class="btn btn-success" id="btnExport">
-                            <i class="fas fa-file-excel"></i> Xuất Excel
-                        </button>
-                        <label class="btn btn-info" id="btnImportLabel">
-                            <i class="fas fa-file-import"></i> Nhập Excel
-                            <input type="file" id="btnImport" accept=".xlsx,.xls" hidden>
-                        </label>
-                        <button class="btn btn-danger" id="btnClearJournal">
-                            <i class="fas fa-trash-alt"></i> Xoá tất cả
+                    <button class="btn btn-primary" id="btnAddEntry">
+                        <i class="fas fa-plus"></i> Thêm mới
+                    </button>
+                    <button class="btn btn-success" id="btnExport">
+                        <i class="fas fa-file-excel"></i> Xuất Excel
+                    </button>
+                    <label class="btn btn-info" id="btnImportLabel">
+                        <i class="fas fa-file-import"></i> Nhập Excel
+                        <input type="file" id="btnImport" accept=".xlsx,.xls" hidden>
+                    </label>
+                    <button class="btn btn-danger" id="btnClearJournal">
+                        <i class="fas fa-trash-alt"></i> Xoá tất cả
+                    </button>
+
+                    <div class="toolbar-spacer"></div>
+
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchInput" placeholder="Tìm kiếm...">
+                    </div>
+                    <div class="date-filter-group">
+                        <input type="date" id="filterStartDate" class="filter-date" title="Từ ngày">
+                        <span class="date-sep">➔</span>
+                        <input type="date" id="filterEndDate" class="filter-date" title="Đến ngày">
+                        <button id="btnClearDates" class="btn-clear-dates" title="Xóa bộ lọc ngày" style="display: none;">
+                            <i class="fas fa-times-circle"></i>
                         </button>
                     </div>
-                    <div class="toolbar-right">
-                        <div class="search-box">
-                            <i class="fas fa-search"></i>
-                            <input type="text" id="searchInput" placeholder="Tìm kiếm...">
-                        </div>
-                        <div class="date-filter-group">
-                            <input type="date" id="filterStartDate" class="filter-date" title="Từ ngày">
-                            <span class="date-sep">➔</span>
-                            <input type="date" id="filterEndDate" class="filter-date" title="Đến ngày">
-                            <button id="btnClearDates" class="btn-clear-dates" title="Xóa bộ lọc ngày" style="display: none;">
-                                <i class="fas fa-times-circle"></i>
-                            </button>
-                        </div>
-                        <select id="filterType" class="filter-select">
-                            <option value="all">Tất cả loại</option>
-                            <option value="thu">Thu (Tiền vào)</option>
-                            <option value="chi">Chi (Tiền ra)</option>
-                        </select>
-                        <select id="filterCategory" class="filter-select" style="max-width: 180px;">
-                            <option value="all">Tất cả danh mục</option>
-                        </select>
-                    </div>
+                    <select id="filterType" class="filter-select">
+                        <option value="all">Tất cả loại</option>
+                        <option value="thu">Thu (Tiền vào)</option>
+                        <option value="chi">Chi (Tiền ra)</option>
+                    </select>
+                    <select id="filterCategory" class="filter-select">
+                        <option value="all">Tất cả danh mục</option>
+                    </select>
                 </div>
                 <div class="table-wrapper">
                     <table class="journal-table">

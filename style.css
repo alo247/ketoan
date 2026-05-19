@@ -132,8 +132,50 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
 }
 
 /* JOURNAL TOOLBAR */
-.journal-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px}
-.toolbar-left,.toolbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.journal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap; /* lock to single row */
+  overflow-x: auto; /* horizontal scroll if screen is too narrow */
+  scrollbar-width: none;
+  margin-bottom: 14px;
+}
+.journal-toolbar::-webkit-scrollbar {
+  display: none;
+}
+.toolbar-spacer {
+  flex: 1;
+  min-width: 10px;
+}
+#pageJournal .journal-toolbar .btn {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+#pageJournal .journal-toolbar .search-box {
+  padding: 0 10px;
+  border-radius: 8px;
+}
+#pageJournal .journal-toolbar .search-box input {
+  padding: 7px 8px;
+  font-size: 0.82rem;
+  width: 120px;
+}
+#pageJournal .journal-toolbar .date-filter-group {
+  padding: 0 8px;
+  border-radius: 8px;
+}
+#pageJournal .journal-toolbar .filter-date {
+  padding: 7px 2px !important;
+  font-size: 0.8rem !important;
+}
+#pageJournal .journal-toolbar .filter-select {
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  border-radius: 8px;
+}
 .btn{display:inline-flex;align-items:center;gap:7px;padding:9px 16px;border:none;border-radius:10px;font-size:.85rem;font-weight:600;cursor:pointer;transition:var(--transition);color:#fff}
 .btn:hover{transform:translateY(-2px);box-shadow:0 4px 15px rgba(0,0,0,.3)}
 .btn-primary{background:linear-gradient(135deg,var(--primary),var(--primary2))}
@@ -298,8 +340,11 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
   .charts-grid{grid-template-columns:1fr}
   .stats-grid{grid-template-columns:repeat(2,1fr)}
   .settings-grid{grid-template-columns:1fr}
-  .journal-toolbar{flex-direction:column;align-items:stretch}
-  .toolbar-left,.toolbar-right{justify-content:center}
+  #pageJournal .journal-toolbar {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    padding-bottom: 4px;
+  }
   
   /* MOBILE JOURNAL STYLES RESET */
   #pageJournal.active {
