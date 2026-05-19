@@ -109,6 +109,17 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
 .badge-thu{background:rgba(56,239,125,.15);color:var(--green)}
 .badge-chi{background:rgba(255,88,88,.15);color:var(--red)}
 
+/* SUBCATEGORY STYLING */
+.subcategory-row {
+  background: rgba(255, 255, 255, 0.012);
+}
+.subcategory-row:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+.subcategory-row td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02) !important;
+}
+
 /* JOURNAL TOOLBAR */
 .journal-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:18px}
 .toolbar-left,.toolbar-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}

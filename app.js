@@ -411,8 +411,6 @@ $('btnClearDates')?.addEventListener('click', () => {
 /* ADD / EDIT ENTRY */
 function showEntryForm(entry) {
   const isEdit = !!entry;
-  const cats = getCategories();
-  const catOptions = type => (cats[type] || []).map(c => `<option value="${c}" ${entry && entry.category === c ? 'selected' : ''}>${c}</option>`).join('');
   const html = `
     <div class="form-group">
       <label>Loại giao dịch</label>
@@ -427,7 +425,7 @@ function showEntryForm(entry) {
     </div>
     <div class="form-group">
       <label>Danh mục</label>
-      <select id="fCat">${catOptions(entry ? entry.type : 'thu')}</select>
+      <select id="fCat">${window.getCatOptionsHtml(entry ? entry.type : 'thu', entry ? entry.category : '')}</select>
     </div>
     <div class="form-group">
       <label>Số tiền (₫)</label>
@@ -530,8 +528,7 @@ function showEntryForm(entry) {
 
 window.updateCatOptions = function () {
   const type = $('fType').value;
-  const cats = getCategories();
-  $('fCat').innerHTML = (cats[type] || []).map(c => `<option value="${c}">${c}</option>`).join('');
+  $('fCat').innerHTML = window.getCatOptionsHtml(type);
 };
 
 $('btnAddEntry').addEventListener('click', () => {
@@ -739,6 +736,12 @@ $('btnImport').addEventListener('change', function (e) {
         }
       });
       saveData();
+      window.sendToCloud({
+        action: 'restoreAll',
+        entries: state.entries,
+        users: state.users,
+        categories: getCategories()
+      });
       updateJournalView();
       renderDashboard();
       toast(`Đã nhập ${count} giao dịch từ Excel!`);

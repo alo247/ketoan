@@ -61,69 +61,251 @@ function getCategories() {
 }
 function saveCategories(cats) { localStorage.setItem('tc_categories', JSON.stringify(cats)); }
 
+function sortCategories(catList) {
+  const roots = catList.filter(c => !c.includes(' > '));
+  const result = [];
+  roots.forEach(root => {
+    result.push(root);
+    const children = catList.filter(c => c.startsWith(root + ' > '));
+    children.forEach(child => {
+      result.push(child);
+    });
+  });
+  catList.forEach(c => {
+    if (!result.includes(c)) result.push(c);
+  });
+  return result;
+}
+window.sortCategories = sortCategories;
+
+window.getCatOptionsHtml = function(type, selectedCat) {
+  const cats = getCategories();
+  const sortedCats = sortCategories(cats[type] || []);
+  return sortedCats.map(c => {
+    let displayName = c;
+    if (c.includes(' > ')) {
+      const parts = c.split(' > ');
+      displayName = `&nbsp;&nbsp;&nbsp;&nbsp;└─ ${parts[1]}`;
+    }
+    return `<option value="${c}" ${selectedCat === c ? 'selected' : ''}>${displayName}</option>`;
+  }).join('');
+};
+
 function renderCategoryPage() {
   const cats = getCategories();
   const adm = hasPermission('cats');
   ['thu', 'chi'].forEach(type => {
     const tbody = $(type === 'thu' ? 'catThuTable' : 'catChiTable');
     if (!tbody) return;
-    tbody.innerHTML = cats[type].map((c, i) => `<tr>
-      <td>${i + 1}</td><td>${c}</td>
-      <td>${adm ? `<button class="btn btn-primary btn-sm" onclick="showEditCatForm('${type}',${i})"><i class="fas fa-edit"></i></button> <button class="btn btn-danger btn-sm" onclick="deleteCat('${type}',${i})"><i class="fas fa-trash"></i></button>` : '-'}</td>
-    </tr>`).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Chưa có danh mục</td></tr>';
+    
+    const sortedCats = sortCategories(cats[type] || []);
+    
+    tbody.innerHTML = sortedCats.map((c, i) => {
+      let displayName = c;
+      let rowStyle = '';
+      if (c.includes(' > ')) {
+        const parts = c.split(' > ');
+        const childName = parts[1];
+        displayName = `<span style="color:var(--text2); margin-left:16px; font-size:0.9rem;"><i class="fas fa-angle-right" style="margin-right:6px; font-size:0.75rem; opacity:0.5"></i>${childName}</span>`;
+        rowStyle = 'class="subcategory-row"';
+      } else {
+        displayName = `<strong style="color:var(--text);">${c}</strong>`;
+      }
+      
+      const originalIdx = cats[type].indexOf(c);
+      
+      return `<tr ${rowStyle}>
+        <td>${i + 1}</td>
+        <td style="padding-left: 15px;">${displayName}</td>
+        <td>${adm ? `<button class="btn btn-primary btn-sm" onclick="showEditCatForm('${type}',${originalIdx})"><i class="fas fa-edit"></i></button> <button class="btn btn-danger btn-sm" onclick="deleteCat('${type}',${originalIdx})"><i class="fas fa-trash"></i></button>` : '-'}</td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Chưa có danh mục</td></tr>';
   });
 }
 
 window.showAddCatForm = function(type) {
   if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
+  const cats = getCategories();
+  const rootCats = cats[type].filter(c => !c.includes(' > '));
+  const options = rootCats.map(c => `<option value="${c}">${c}</option>`).join('');
+
   openModal('Thêm danh mục ' + (type === 'thu' ? 'Thu' : 'Chi'), `
-    <div class="form-group"><label>Tên danh mục</label><input type="text" id="fCatName" placeholder="Nhập tên danh mục"></div>
-    <div class="modal-actions"><button class="btn btn-primary" onclick="saveCat('${type}')">Thêm</button></div>
+    <div class="form-group">
+      <label>Loại danh mục</label>
+      <select id="fCatType" onchange="toggleAddCatParent()">
+        <option value="root">Danh mục gốc</option>
+        <option value="sub">Danh mục con (phụ thuộc)</option>
+      </select>
+    </div>
+    <div class="form-group" id="fCatParentGroup" style="display:none">
+      <label>Danh mục cha</label>
+      <select id="fCatParent" class="filter-select" style="width:100%">
+        ${options}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Tên danh mục</label>
+      <input type="text" id="fCatName" placeholder="Nhập tên danh mục">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveCat('${type}')">Thêm</button>
+    </div>
   `);
+
+  window.toggleAddCatParent = function() {
+    const isSub = $('fCatType').value === 'sub';
+    $('fCatParentGroup').style.display = isSub ? 'block' : 'none';
+  };
 };
+
 window.showEditCatForm = function(type, idx) {
   if (!hasPermission('cats')) return;
   const cats = getCategories();
   const old = cats[type][idx];
+  
+  let oldName = old;
+  let oldParent = '';
+  let isSub = false;
+
+  if (old.includes(' > ')) {
+    const parts = old.split(' > ');
+    oldParent = parts[0];
+    oldName = parts[1];
+    isSub = true;
+  }
+
+  const rootCats = cats[type].filter((c, i) => !c.includes(' > ') && i !== idx);
+  const options = rootCats.map(c => `<option value="${c}" ${c === oldParent ? 'selected' : ''}>${c}</option>`).join('');
+
   openModal('Sửa danh mục', `
-    <div class="form-group"><label>Tên danh mục</label><input type="text" id="fCatName" value="${old}"></div>
-    <div class="modal-actions"><button class="btn btn-primary" onclick="updateCat('${type}',${idx})">Cập nhật</button></div>
+    <div class="form-group">
+      <label>Loại danh mục</label>
+      <select id="fCatType" onchange="toggleAddCatParent()">
+        <option value="root" ${!isSub ? 'selected' : ''}>Danh mục gốc</option>
+        <option value="sub" ${isSub ? 'selected' : ''}>Danh mục con</option>
+      </select>
+    </div>
+    <div class="form-group" id="fCatParentGroup" style="display:${isSub ? 'block' : 'none'}">
+      <label>Danh mục cha</label>
+      <select id="fCatParent" class="filter-select" style="width:100%">
+        ${options}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Tên danh mục</label>
+      <input type="text" id="fCatName" value="${oldName}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="updateCat('${type}',${idx})">Cập nhật</button>
+    </div>
   `);
+
+  window.toggleAddCatParent = function() {
+    const isSub = $('fCatType').value === 'sub';
+    $('fCatParentGroup').style.display = isSub ? 'block' : 'none';
+  };
 };
+
 window.saveCat = function(type) {
   if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
-  const name = $('fCatName').value.trim();
-  if (!name) return toast('Nhập tên danh mục!', 'error');
+  const catType = $('fCatType').value;
+  const rawName = $('fCatName').value.trim();
+  if (!rawName) return toast('Nhập tên danh mục!', 'error');
+  if (rawName.includes('>') || rawName.includes('<')) return toast('Tên danh mục không chứa ký tự đặc biệt > hoặc <!', 'error');
+
+  let fullName = rawName;
+  if (catType === 'sub') {
+    const parent = $('fCatParent').value;
+    if (!parent) return toast('Chọn danh mục cha!', 'error');
+    fullName = parent + ' > ' + rawName;
+  }
+
   const cats = getCategories();
-  if (cats[type].includes(name)) return toast('Danh mục đã tồn tại!', 'error');
-  cats[type].push(name);
+  if (cats[type].includes(fullName)) return toast('Danh mục đã tồn tại!', 'error');
+  cats[type].push(fullName);
   saveCategories(cats);
-  if (window.sendToCloud) window.sendToCloud({ action: 'saveCat', type, name });
+  if (window.sendToCloud) window.sendToCloud({ action: 'saveCat', type, name: fullName });
   closeModal();
   renderCategoryPage();
   toast('Đã thêm danh mục!');
 };
+
 window.updateCat = function(type, idx) {
   if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
-  const name = $('fCatName').value.trim();
-  if (!name) return toast('Nhập tên danh mục!', 'error');
+  const catType = $('fCatType').value;
+  const rawName = $('fCatName').value.trim();
+  if (!rawName) return toast('Nhập tên danh mục!', 'error');
+  if (rawName.includes('>') || rawName.includes('<')) return toast('Tên danh mục không chứa ký tự đặc biệt > hoặc <!', 'error');
+
+  let fullName = rawName;
+  if (catType === 'sub') {
+    const parent = $('fCatParent').value;
+    if (!parent) return toast('Chọn danh mục cha!', 'error');
+    fullName = parent + ' > ' + rawName;
+  }
+
   const cats = getCategories();
   const oldName = cats[type][idx];
-  cats[type][idx] = name;
+  
+  if (oldName === fullName) {
+    closeModal();
+    return;
+  }
+
+  if (!oldName.includes(' > ') && fullName !== oldName) {
+    cats[type] = cats[type].map(c => {
+      if (c.startsWith(oldName + ' > ')) {
+        return c.replace(oldName + ' > ', fullName + ' > ');
+      }
+      return c;
+    });
+
+    state.entries.forEach(e => {
+      if (e.type === type) {
+        if (e.category === oldName) {
+          e.category = fullName;
+        } else if (e.category.startsWith(oldName + ' > ')) {
+          e.category = e.category.replace(oldName + ' > ', fullName + ' > ');
+        }
+      }
+    });
+  } else {
+    state.entries.forEach(e => {
+      if (e.type === type && e.category === oldName) {
+        e.category = fullName;
+      }
+    });
+  }
+
+  cats[type][idx] = fullName;
   saveCategories(cats);
-  // Update existing entries with old category name
-  state.entries.forEach(e => { if (e.type === type && e.category === oldName) e.category = name; });
   saveData();
-  if (window.sendToCloud) window.sendToCloud({ action: 'updateCat', type, idx, name, oldName });
+
+  if (window.sendToCloud) window.sendToCloud({ action: 'updateCat', type, idx, name: fullName, oldName });
   closeModal();
   renderCategoryPage();
   toast('Đã cập nhật danh mục!');
 };
+
 window.deleteCat = function(type, idx) {
   if (!hasPermission('cats')) return toast('Bạn không có quyền!', 'error');
-  if (!confirm('Xoá danh mục này?')) return;
   const cats = getCategories();
+  const targetCat = cats[type][idx];
+  
+  let confirmMsg = 'Xoá danh mục này?';
+  const children = cats[type].filter(c => c.startsWith(targetCat + ' > '));
+  if (children.length > 0) {
+    confirmMsg = `Danh mục này có ${children.length} danh mục con. Xoá danh mục này sẽ xoá toàn bộ danh mục con đi kèm. Bạn có chắc chắn muốn xoá?`;
+  }
+  
+  if (!confirm(confirmMsg)) return;
+  
   cats[type].splice(idx, 1);
+  
+  if (children.length > 0) {
+    cats[type] = cats[type].filter(c => !c.startsWith(targetCat + ' > '));
+  }
+  
   saveCategories(cats);
   if (window.sendToCloud) window.sendToCloud({ action: 'deleteCat', type, idx });
   renderCategoryPage();
