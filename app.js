@@ -318,9 +318,52 @@ function chartOpts(yLabel) {
 }
 
 /* ===== JOURNAL ===== */
+window.populateFilterCategories = function () {
+  const filterTypeEl = $('filterType');
+  const filterCategoryEl = $('filterCategory');
+  if (!filterCategoryEl || !filterTypeEl) return;
+
+  const currentSelection = filterCategoryEl.value;
+  const type = filterTypeEl.value;
+  const cats = getCategories();
+
+  let optionsHtml = '<option value="all">Tất cả danh mục</option>';
+
+  const addCategoryOptions = (catList) => {
+    const sorted = window.sortCategories ? window.sortCategories(catList) : catList;
+    sorted.forEach(c => {
+      const parts = c.split(' > ');
+      const indent = parts.length > 1 ? '&nbsp;&nbsp;└─ ' : '';
+      const displayName = parts[parts.length - 1];
+      optionsHtml += `<option value="${c}">${indent}${displayName}</option>`;
+    });
+  };
+
+  if (type === 'all') {
+    optionsHtml += '<optgroup label="Danh mục Thu">';
+    addCategoryOptions(cats.thu || []);
+    optionsHtml += '</optgroup><optgroup label="Danh mục Chi">';
+    addCategoryOptions(cats.chi || []);
+    optionsHtml += '</optgroup>';
+  } else if (type === 'thu') {
+    addCategoryOptions(cats.thu || []);
+  } else if (type === 'chi') {
+    addCategoryOptions(cats.chi || []);
+  }
+
+  filterCategoryEl.innerHTML = optionsHtml;
+
+  if ([...filterCategoryEl.options].some(o => o.value === currentSelection)) {
+    filterCategoryEl.value = currentSelection;
+  } else {
+    filterCategoryEl.value = 'all';
+  }
+};
+
 function updateJournalView() {
   const search = ($('searchInput')?.value || '').toLowerCase();
   const filter = $('filterType')?.value || 'all';
+  const filterCat = $('filterCategory')?.value || 'all';
   const startDate = $('filterStartDate')?.value || '';
   const endDate = $('filterEndDate')?.value || '';
 
@@ -332,6 +375,7 @@ function updateJournalView() {
 
   let list = [...state.entries];
   if (filter !== 'all') list = list.filter(e => e.type === filter);
+  if (filterCat !== 'all') list = list.filter(e => e.category === filterCat);
   if (startDate) list = list.filter(e => e.date >= startDate);
   if (endDate) list = list.filter(e => e.date <= endDate);
   if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
@@ -397,7 +441,11 @@ function updateJournalView() {
 }
 
 $('searchInput')?.addEventListener('input', updateJournalView);
-$('filterType')?.addEventListener('change', updateJournalView);
+$('filterType')?.addEventListener('change', () => {
+  window.populateFilterCategories();
+  updateJournalView();
+});
+$('filterCategory')?.addEventListener('change', updateJournalView);
 $('filterStartDate')?.addEventListener('change', updateJournalView);
 $('filterEndDate')?.addEventListener('change', updateJournalView);
 $('btnClearDates')?.addEventListener('click', () => {
@@ -1156,4 +1204,5 @@ $('btnGenDemo').addEventListener('click', () => {
 (async function () {
   await loadData();
   initLogin();
+  window.populateFilterCategories();
 })();

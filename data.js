@@ -121,6 +121,7 @@ function renderCategoryPage() {
       </tr>`;
     }).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--text2);padding:20px">Chưa có danh mục</td></tr>';
   });
+  if (window.populateFilterCategories) window.populateFilterCategories();
 }
 
 window.showAddCatForm = function(type) {
