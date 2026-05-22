@@ -1,5 +1,48 @@
 /* ===== DEMO DATA GENERATOR & CATEGORY MANAGEMENT ===== */
 
+const AI_KEYWORD_RULES = [
+  // Thu
+  { keywords: ['bán', 'shopee', 'lazada', 'tiktok', 'online', 'cửa hàng', 'đơn hàng', 'đại lý', 'khách', 'live', 'sỉ', 'lẻ'], type: 'thu', category: 'Doanh thu bán hàng' },
+  { keywords: ['tư vấn', 'sửa', 'phí', 'bảo trì', 'thiết kế', 'vận chuyển', 'gia công', 'đào tạo', 'thuê', 'dịch vụ', 'hỗ trợ'], type: 'thu', category: 'Dịch vụ' },
+  { keywords: ['cổ tức', 'cổ phần', 'bđs', 'đầu tư', 'lãi', 'hợp tác'], type: 'thu', category: 'Đầu tư' },
+  { keywords: ['gửi', 'tiết kiệm', 'vcb', 'mb', 'techcombank', 'ngân hàng'], type: 'thu', category: 'Lãi ngân hàng' },
+  { keywords: ['thanh lý', 'phạt', 'đền', 'bảo hiểm', 'đặt cọc', 'thưởng'], type: 'thu', category: 'Thu khác' },
+
+  // Chi
+  { keywords: ['nguyên liệu', 'vật tư', 'bao bì', 'nhập hàng', 'nhập kho', 'vật liệu', 'nhập nguyên liệu', 'hóa chất', 'thực phẩm', 'linh kiện'], type: 'chi', category: 'Nguyên vật liệu' },
+  { keywords: ['lương', 'thưởng', 'bhxh', 'phụ cấp', 'ăn trưa', 'đi lại', 'tuyển dụng', 'làm thêm', 'ot', 'phúc lợi', 'nhân sự', 'nhân viên'], type: 'chi', category: 'Nhân công' },
+  { keywords: ['thuê văn phòng', 'thuê nhà', 'thuê kho', 'thuê cửa hàng', 'mặt bằng', 'quản lý tòa nhà', 'cọc nhà', 'tiền thuê', 'chung cư'], type: 'chi', category: 'Thuê mặt bằng' },
+  { keywords: ['điện', 'nước', 'internet', 'wifi', 'cáp', 'điện thoại', 'mạng', 'gas'], type: 'chi', category: 'Điện nước' },
+  { keywords: ['ship', 'xăng', 'dầu', 'grab', 'taxi', 'giao hàng', 'vé máy bay', 'công tác', 'xe tải', 'phí đường', 'phí cầu đường'], type: 'chi', category: 'Vận chuyển' },
+  { keywords: ['quảng cáo', 'facebook', 'google', 'ads', 'kol', 'seo', 'marketing', 'tờ rơi', 'sự kiện', 'poster', 'banner', 'tiktok ads'], type: 'chi', category: 'Marketing' },
+  { keywords: ['máy tính', 'máy in', 'laptop', 'điều hòa', 'server', 'bàn ghế', 'phần mềm', 'thiết bị', 'bảo hộ'], type: 'chi', category: 'Thiết bị' },
+  { keywords: ['tiếp khách', 'quà tặng', 'phí ngân hàng', 'thuế', 'vat', 'luật sư', 'văn phòng phẩm', 'giấy', 'bút', 'sách', 'phát sinh', 'nước uống', 'cafe', 'cà phê', 'trà', 'bánh', 'nhà hàng', 'ăn uống'], type: 'chi', category: 'Chi khác' }
+];
+
+function suggestCategoryAI(text, type) {
+  if (!text) return null;
+  const cleanText = text.toLowerCase();
+  let bestMatch = null;
+  let maxMatches = 0;
+  
+  for (const rule of AI_KEYWORD_RULES) {
+    if (rule.type !== type) continue;
+    let matches = 0;
+    for (const keyword of rule.keywords) {
+      if (cleanText.includes(keyword)) {
+        matches++;
+      }
+    }
+    if (matches > maxMatches) {
+      maxMatches = matches;
+      bestMatch = rule.category;
+    }
+  }
+  return bestMatch;
+}
+
+window.suggestCategoryAI = suggestCategoryAI;
+
 const DEMO_REASONS = {
   thu: {
     'Doanh thu bán hàng': ['Bán hàng online Shopee','Bán hàng tại cửa hàng','Đơn hàng sỉ','Bán lẻ cuối tuần','Đơn hàng Lazada','Bán hàng TikTok Shop','Đơn hàng đại lý','Bán hàng livestream','Thanh toán đơn hàng cũ','Thu hồi công nợ khách'],
@@ -19,6 +62,7 @@ const DEMO_REASONS = {
     'Chi khác': ['Tiếp khách đối tác','Quà tặng khách hàng','Phí ngân hàng','Thuế GTGT','Thuế thu nhập','Phí luật sư','Bảo hiểm tài sản','Văn phòng phẩm','Phí giấy phép','Chi phí phát sinh']
   }
 };
+
 
 function generateDemoEntries(count) {
   const entries = [];
@@ -40,11 +84,27 @@ function generateDemoEntries(count) {
     } else {
       amount = (Math.floor(Math.random() * 100) + 1) * 100000;
     }
+    
+    // Tạo ngẫu nhiên trạng thái kiểm soát
+    const auditRand = Math.random();
+    let auditStatus = 'pending';
+    let auditNote = '';
+    if (auditRand < 0.65) {
+      auditStatus = 'valid';
+    } else if (auditRand < 0.8) {
+      auditStatus = 'invalid';
+      auditNote = type === 'thu' 
+        ? 'Chưa đối chiếu khớp sao kê ngân hàng cho khoản thu này.' 
+        : 'Chứng từ đính kèm bị mờ thông tin hóa đơn hoặc thiếu chữ ký người nhận.';
+    }
+    
     entries.push({
       id: uid(),
       type, date, category, amount, reason,
       createdBy: 'admin',
-      createdAt: d.toISOString()
+      createdAt: d.toISOString(),
+      auditStatus,
+      auditNote
     });
   }
   return entries;

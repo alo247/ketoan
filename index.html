@@ -6,11 +6,11 @@
     <title>Quản Lý Thu Chi - Phần Mềm Kế Toán</title>
     <meta name="description" content="Phần mềm quản lý thu chi đơn giản, hiện đại với tính năng tự động hoạch toán">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <script src="xlsx.full.min.js"></script>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=1.0.1">
 </head>
 <body>
     <!-- LOGIN SCREEN -->
@@ -33,7 +33,12 @@
                 </div>
                 <div class="form-group">
                     <label><i class="fas fa-lock"></i> Mật khẩu</label>
-                    <input type="password" id="loginPass" placeholder="Nhập mật khẩu">
+                    <div class="password-wrapper">
+                        <input type="password" id="loginPass" placeholder="Nhập mật khẩu">
+                        <button type="button" id="btnToggleLoginPass" class="btn-toggle-password" title="Hiển thị mật khẩu">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    </div>
                 </div>
                 <button type="submit" class="btn-login" id="btnLogin">
                     <i class="fas fa-sign-in-alt"></i> Đăng Nhập
@@ -58,11 +63,20 @@
                 <li data-page="journal">
                     <i class="fas fa-book"></i><span>Nhật ký chung</span>
                 </li>
+                <li data-page="advances" id="menuAdvances">
+                    <i class="fas fa-hand-holding-usd"></i><span>Tạm & Hoàn ứng</span>
+                </li>
+                <li data-page="debts" id="menuDebts">
+                    <i class="fas fa-file-invoice-dollar"></i><span>Công nợ</span>
+                </li>
                 <li data-page="categories" id="menuCategories">
                     <i class="fas fa-tags"></i><span>Danh mục</span>
                 </li>
                 <li data-page="reports">
                     <i class="fas fa-chart-bar"></i><span>Báo cáo</span>
+                </li>
+                <li data-page="audit" id="menuAudit" class="admin-only">
+                    <i class="fas fa-shield-alt"></i><span>Nhật ký Audit</span>
                 </li>
                 <li data-page="settings" id="menuSettings">
                     <i class="fas fa-cog"></i><span>Cài đặt</span>
@@ -89,13 +103,22 @@
                     <i class="fas fa-bars"></i>
                 </button>
                 <h2 id="pageTitle">Tổng quan</h2>
-                <div class="top-bar-actions">
+                <div class="top-bar-actions" style="display:flex;align-items:center;gap:4px">
+                    <div class="color-scheme-picker" id="colorSchemePicker" title="Chọn tông màu chủ đạo">
+                        <button class="dot-btn active" data-scheme="indigo" title="Indigo & Sky"></button>
+                        <button class="dot-btn" data-scheme="emerald" title="Emerald & Mint"></button>
+                        <button class="dot-btn" data-scheme="violet" title="Obsidian & Violet"></button>
+                    </div>
+                    <button id="btnThemeToggle" class="btn-theme-toggle" title="Đổi giao diện Sáng/Tối" style="margin-right:8px">
+                        <i class="fas fa-moon"></i>
+                    </button>
                     <span id="todayDate"></span>
                 </div>
             </header>
 
             <!-- DASHBOARD PAGE -->
             <section id="pageDashboard" class="page active">
+
                 <div class="stats-grid">
                     <div class="stat-card income">
                         <div class="stat-icon"><i class="fas fa-arrow-down"></i></div>
@@ -197,16 +220,101 @@
                             <tr>
                                 <th>STT</th><th>Ngày</th><th>Loại</th>
                                 <th>Danh mục</th><th>Số tiền</th>
-                                <th>Lý do</th><th>Chứng từ</th><th>Người tạo</th><th>Thao tác</th>
+                                <th>Lý do</th><th>Chứng từ</th><th>Kiểm soát</th><th>Người tạo</th><th>Thao tác</th>
                             </tr>
                         </thead>
                         <tbody id="journalTable"></tbody>
                     </table>
                 </div>
+                <div class="pagination-wrapper" id="journalPagination"></div>
                 <div class="journal-summary">
                     <div><strong>Tổng thu:</strong> <span id="jSumIncome" class="text-green">0 ₫</span></div>
                     <div><strong>Tổng chi:</strong> <span id="jSumExpense" class="text-red">0 ₫</span></div>
-                    <div><strong>Lợi nhuận:</strong> <span id="jSumProfit">0 ₫</span></div>
+                </div>
+            </section>
+
+            <!-- ADVANCES PAGE -->
+            <section id="pageAdvances" class="page">
+                <div class="journal-toolbar">
+                    <button class="btn btn-primary" id="btnNewAdvance">
+                        <i class="fas fa-hand-holding-usd"></i> Đề xuất tạm ứng
+                    </button>
+                    <div class="toolbar-spacer"></div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="advSearchInput" placeholder="Tìm nhân viên, lý do...">
+                    </div>
+                    <select id="advFilterStatus" class="filter-select">
+                        <option value="all">Tất cả trạng thái</option>
+                        <option value="pending">Chờ duyệt</option>
+                        <option value="paid">Đã duyệt chi tạm ứng</option>
+                        <option value="settled">Đã hoàn ứng xong</option>
+                    </select>
+                </div>
+                <div class="table-wrapper" style="border: 1px solid var(--card-border); border-radius: var(--radius); background: var(--bg2);">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>STT</th><th>Nhân viên</th><th>Số tiền ứng</th><th>Ngày ứng</th>
+                                <th>Lý do tạm ứng</th><th>Hóa đơn hoàn ứng</th><th>Chênh lệch</th><th>Trạng thái</th><th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="advancesTable"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- DEBTS PAGE -->
+            <section id="pageDebts" class="page">
+                <div class="journal-toolbar">
+                    <button class="btn btn-primary" id="btnNewDebt">
+                        <i class="fas fa-plus-circle"></i> Thêm công nợ mới
+                    </button>
+                    <div class="toolbar-spacer"></div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="debtSearchInput" placeholder="Tìm đối tác, lý do...">
+                    </div>
+                    <select id="debtFilterType" class="filter-select">
+                        <option value="all">Tất cả loại</option>
+                        <option value="thu">Phải thu (Khách hàng)</option>
+                        <option value="chi">Phải trả (Nhà cung cấp)</option>
+                    </select>
+                    <select id="debtFilterStatus" class="filter-select">
+                        <option value="all">Tất cả trạng thái</option>
+                        <option value="unpaid">Chưa thanh toán</option>
+                        <option value="paid">Đã thanh toán</option>
+                    </select>
+                </div>
+                
+                <!-- Stats row for debts -->
+                <div class="stats-grid" style="margin-bottom:18px">
+                    <div class="stat-card income" style="padding:15px">
+                        <div class="stat-icon" style="width:40px;height:40px;font-size:1rem"><i class="fas fa-sign-in-alt"></i></div>
+                        <div class="stat-info">
+                            <small style="font-size:0.7rem">Tổng Phải Thu (Khách hàng)</small>
+                            <h3 id="debtTotalReceivable" style="font-size:1.1rem">0 ₫</h3>
+                        </div>
+                    </div>
+                    <div class="stat-card expense" style="padding:15px">
+                        <div class="stat-icon" style="width:40px;height:40px;font-size:1rem"><i class="fas fa-sign-out-alt"></i></div>
+                        <div class="stat-info">
+                            <small style="font-size:0.7rem">Tổng Phải Trả (Nhà cung cấp)</small>
+                            <h3 id="debtTotalPayable" style="font-size:1.1rem">0 ₫</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="table-wrapper" style="border: 1px solid var(--card-border); border-radius: var(--radius); background: var(--bg2);">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>STT</th><th>Loại</th><th>Đối tác</th><th>Số tiền</th><th>Hạn thanh toán</th>
+                                <th>Nội dung</th><th>Trạng thái</th><th>Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="debtsTable"></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -279,9 +387,14 @@
                     </div>
                 </div>
                 <div class="charts-grid">
-                    <div class="chart-card full">
+                    <div class="chart-card">
                         <h4><i class="fas fa-chart-area"></i> Biểu Đồ Thu Chi Theo Kỳ</h4>
                         <canvas id="chartReport"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h4><i class="fas fa-chart-line"></i> Dự Báo Số Dư Quỹ 30 Ngày Tới (Linear Forecast)</h4>
+                        <canvas id="chartForecast"></canvas>
+                        <div id="forecastAlertBox" style="margin-top:12px;font-size:0.85rem;padding:10px 14px;border-radius:10px;font-weight:500;display:none;line-height:1.5;"></div>
                     </div>
                 </div>
                 <div class="recent-card">
@@ -294,6 +407,109 @@
                             <tbody id="reportTable"></tbody>
                         </table>
                     </div>
+                </div>
+
+                <!-- SIMPLIFIED P&L REPORT WITH AI ANALYSIS -->
+                <div class="recent-card" style="margin-bottom:24px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+                        <h4 style="margin:0"><i class="fas fa-table"></i> Báo Cáo Kết Quả Kinh Doanh (P&L) Rút Gọn</h4>
+                        <button class="btn btn-secondary btn-sm" id="btnExportPL" style="margin-left:auto"><i class="fas fa-file-excel"></i> Xuất P&L Excel</button>
+                    </div>
+                    <div class="pl-statement" style="background:rgba(255,255,255,0.02);border:1px solid var(--card-border);border-radius:12px;padding:20px;">
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:1rem;font-weight:600;">
+                            <span>1. DOANH THU THUẦN (Doanh số bán hàng & Dịch vụ)</span>
+                            <span id="plNetRevenue" style="color:var(--green)">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Doanh thu bán hàng</span>
+                            <span id="plSalesRevenue">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Doanh thu cung cấp dịch vụ</span>
+                            <span id="plServiceRevenue">0 ₫</span>
+                        </div>
+                        
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:1rem;font-weight:600;">
+                            <span>2. GIÁ VỐN HÀNG BÁN & CHI PHÍ TRỰC TIẾP (COGS)</span>
+                            <span id="plCOGS" style="color:var(--red)">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Nhập nguyên vật liệu / Hàng hóa nhập kho</span>
+                            <span id="plRawMatCost">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Chi phí vận chuyển / Giao hàng</span>
+                            <span id="plDeliveryCost">0 ₫</span>
+                        </div>
+
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:1rem;font-weight:700;background:rgba(255,255,255,0.02);border-radius:6px;padding-left:10px;padding-right:10px;">
+                            <span>3. LỢI NHUẬN GỘP (Doanh thu - Giá vốn)</span>
+                            <span id="plGrossProfit" style="color:var(--blue)">0 ₫</span>
+                        </div>
+
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:1rem;font-weight:600;">
+                            <span>4. CHI PHÍ VẬN HÀNH DOANH NGHIỆP (OPEX)</span>
+                            <span id="plOPEX" style="color:var(--red)">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Tiền lương, thưởng & Phúc lợi nhân sự</span>
+                            <span id="plStaffCost">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Chi phí thuê văn phòng & Mặt bằng</span>
+                            <span id="plRentCost">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Chi phí quảng cáo & Marketing</span>
+                            <span id="plMarketingCost">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Chi phí điện, nước, internet, mạng</span>
+                            <span id="plUtilityCost">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Mua thiết bị, máy móc, sửa chữa</span>
+                            <span id="plDeviceCost">0 ₫</span>
+                        </div>
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.03);padding-left:20px;color:var(--text2);font-size:0.9rem;">
+                            <span>- Chi phí văn phòng phẩm & các khoản chi khác</span>
+                            <span id="plOtherOPEX">0 ₫</span>
+                        </div>
+
+                        <div class="pl-row" style="display:flex;justify-content:space-between;padding:14px 0;border-top:2px solid var(--primary);font-size:1.1rem;font-weight:800;background:var(--primary-glow);border-radius:8px;padding-left:12px;padding-right:12px;margin-top:10px;">
+                            <span>5. LỢI NHUẬN RÒNG (Doanh thu - Tổng tất cả chi phí)</span>
+                            <span id="plNetProfit">0 ₫</span>
+                        </div>
+                    </div>
+                    
+                    <!-- AI MONTHLY ANALYSIS COMMENTS BOX -->
+                    <div id="aiPLCommentaryBox" style="margin-top:16px;background:rgba(99,102,241,0.08);border:1px dashed var(--primary);border-radius:10px;padding:16px;line-height:1.6">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:600;color:#818cf8">
+                            <i class="fas fa-robot"></i> <span>🤖 Trợ Lý Tài Chính AI - Phân Tích & Khuyến Nghị Kỳ Này:</span>
+                        </div>
+                        <div id="aiPLCommentaryContent" style="font-size:0.88rem;color:var(--text)">
+                            Đang phân tích số liệu tài chính để lập báo cáo P&L tự động...
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AUDIT PAGE -->
+            <section id="pageAudit" class="page admin-only">
+                <div class="journal-toolbar">
+                    <h4><i class="fas fa-shield-alt"></i> Nhật ký Audit Trail hệ thống chống sửa quỹ</h4>
+                    <div class="toolbar-spacer"></div>
+                    <button class="btn btn-danger btn-sm" id="btnClearAuditLogs"><i class="fas fa-trash"></i> Xóa lịch sử logs</button>
+                </div>
+                <div class="table-wrapper" style="border: 1px solid var(--card-border); border-radius: var(--radius); background: var(--bg2);">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Thời gian</th><th>Tài khoản</th><th>Vai trò</th><th>Hành động</th><th>Chi tiết hành vi thay đổi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="auditLogsTable"></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -354,7 +570,38 @@
     <!-- TOAST -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="data.js"></script>
-    <script src="app.js"></script>
+    <!-- FLOATING AI FINANCIAL CHATBOT -->
+    <div id="aiFloatingChatbot" class="ai-floating-chatbot">
+        <button id="btnToggleChatbot" class="btn-toggle-chatbot" title="Hỏi Trợ Lý Tài Chính AI">
+            <i class="fas fa-robot"></i>
+            <span class="pulse-ring"></span>
+        </button>
+        <div id="chatbotWindow" class="chatbot-window hidden">
+            <div class="chatbot-header">
+                <div class="chatbot-header-title">
+                    <i class="fas fa-robot"></i>
+                    <div>
+                        <strong>Trợ Lý Tài Chính AI</strong>
+                        <small>Hoạt động trực tuyến</small>
+                    </div>
+                </div>
+                <button id="btnCloseChatbot" class="btn-close-chatbot">&times;</button>
+            </div>
+            <div id="chatbotMessages" class="chatbot-messages">
+                <div class="chat-message bot">
+                    Xin chào! Tôi là Trợ lý Tài chính AI. Bạn có thể hỏi tôi về báo cáo thu chi, dự báo dòng tiền, kiểm tra công nợ hoặc phân tích tình hình kinh doanh tháng này. Hãy nhập câu hỏi bên dưới nhé!
+                </div>
+            </div>
+            <div class="chatbot-input-area">
+                <input type="text" id="chatbotInput" placeholder="Hỏi tôi: 'doanh thu tháng này thế nào?'..." autocomplete="off">
+                <button id="btnSendChatbotMessage" class="btn-send-message">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="data.js?v=1.0.1"></script>
+    <script src="app.js?v=1.0.1"></script>
 </body>
 </html>
