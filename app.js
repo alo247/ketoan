@@ -1146,7 +1146,7 @@ window.saveAuditStatus = function (entryId) {
   
   // Ghi nhận lịch sử audit trail
   const statusLabels = { pending: 'Chờ kiểm soát', valid: 'Hợp lệ', invalid: 'Không hợp lệ' };
-  const actionDetails = `Kiểm soát giao dịch [ID: ${entryId}]: từ [${statusLabels[oldStatus]}] sang [${statusLabels[newStatus]}]. Ghi chú: "${newNote || 'Không có ghi chú'}"`;
+  const actionDetails = `Kiểm soát giao dịch [Tên đăng nhập: ${state.entries[idx].createdBy || 'không rõ'}]: từ [${statusLabels[oldStatus]}] sang [${statusLabels[newStatus]}]. Ghi chú: "${newNote || 'Không có ghi chú'}"`;
   writeAuditLog('Kiểm soát giao dịch', actionDetails);
   
   // Đồng bộ đám mây
