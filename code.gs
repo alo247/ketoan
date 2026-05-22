@@ -45,6 +45,8 @@ function doPost(e) {
       result = deleteCat(ss, payload.type, payload.idx);
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
+    } else if (action === "restoreAll") {
+      result = restoreAll(ss, payload.entries, payload.users, payload.categories);
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -365,4 +367,83 @@ function getOrCreateFolder(folderName) {
     return folders.next();
   }
   return DriveApp.createFolder(folderName);
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ TOÀN BỘ CƠ SỞ DỮ LIỆU (RESTORE ALL)
+// -------------------------------------------------------------
+function restoreAll(ss, entries, users, categories) {
+  try {
+    // 1. Đồng bộ Entries (Nhật Ký Chung)
+    if (entries && Array.isArray(entries)) {
+      var sheet = ss.getSheetByName("entries");
+      if (sheet.getLastRow() >= 2) {
+        sheet.deleteRows(2, sheet.getLastRow() - 1);
+      }
+      var headers = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt"];
+      
+      var rowsToAppend = [];
+      for (var i = 0; i < entries.length; i++) {
+        var entry = entries[i];
+        var rowValues = [];
+        for (var c = 0; c < headers.length; c++) {
+          var header = headers[c];
+          var val = entry[header];
+          if (val === undefined || val === null) {
+            rowValues.push("");
+          } else if (header === "amount" || header === "stt") {
+            rowValues.push(Number(val) || 0);
+          } else {
+            rowValues.push(val);
+          }
+        }
+        rowsToAppend.push(rowValues);
+      }
+      if (rowsToAppend.length > 0) {
+        sheet.getRange(2, 1, rowsToAppend.length, headers.length).setValues(rowsToAppend);
+      }
+    }
+
+    // 2. Đồng bộ Users (Danh sách người dùng)
+    if (users && Array.isArray(users)) {
+      var uSheet = ss.getSheetByName("users");
+      if (uSheet.getLastRow() >= 2) {
+        uSheet.deleteRows(2, uSheet.getLastRow() - 1);
+      }
+      var uHeaders = ["username", "password", "role", "label", "permissions"];
+      var uRows = [];
+      for (var j = 0; j < users.length; j++) {
+        var u = users[j];
+        uRows.push([u.username, u.password, u.role, u.label, u.permissions || ""]);
+      }
+      if (uRows.length > 0) {
+        uSheet.getRange(2, 1, uRows.length, uHeaders.length).setValues(uRows);
+      }
+    }
+
+    // 3. Đồng bộ Categories (Danh mục)
+    if (categories && typeof categories === "object") {
+      var catSheet = ss.getSheetByName("categories");
+      if (catSheet.getLastRow() >= 2) {
+        catSheet.deleteRows(2, catSheet.getLastRow() - 1);
+      }
+      var catRows = [];
+      if (categories.thu && Array.isArray(categories.thu)) {
+        for (var k = 0; k < categories.thu.length; k++) {
+          catRows.push(["thu", categories.thu[k]]);
+        }
+      }
+      if (categories.chi && Array.isArray(categories.chi)) {
+        for (var m = 0; m < categories.chi.length; m++) {
+          catRows.push(["chi", categories.chi[m]]);
+        }
+      }
+      if (catRows.length > 0) {
+        catSheet.getRange(2, 1, catRows.length, 2).setValues(catRows);
+      }
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.toString() };
+  }
 }
