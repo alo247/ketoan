@@ -371,16 +371,33 @@ document.querySelectorAll('.sidebar-menu li').forEach(li => {
     if (page === 'audit') renderAuditLogs();
     if (page === 'settings') renderSettings();
     
-    // Close mobile sidebar
+    // Close mobile sidebar and hide overlay
     document.querySelector('.sidebar').classList.remove('mobile-open');
+    const overlay = $('sidebarOverlay');
+    if (overlay) overlay.classList.remove('active');
   });
 });
 
 $('btnToggleSidebar').addEventListener('click', () => {
   const sb = document.querySelector('.sidebar');
-  if (window.innerWidth <= 768) sb.classList.toggle('mobile-open');
-  else sb.classList.toggle('collapsed');
+  const overlay = $('sidebarOverlay');
+  if (window.innerWidth <= 768) {
+    const isOpen = sb.classList.toggle('mobile-open');
+    if (isOpen && overlay) overlay.classList.add('active');
+    else if (overlay) overlay.classList.remove('active');
+  } else {
+    sb.classList.toggle('collapsed');
+  }
 });
+
+// Click overlay to close mobile sidebar
+const overlayEl = $('sidebarOverlay');
+if (overlayEl) {
+  overlayEl.addEventListener('click', () => {
+    document.querySelector('.sidebar').classList.remove('mobile-open');
+    overlayEl.classList.remove('active');
+  });
+}
 
 /* ===== MODAL ===== */
 function openModal(title, html) {

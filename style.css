@@ -390,6 +390,26 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
   z-index: 40;
 }
 
+/* Sidebar Mobile Overlay */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sidebar-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* RESPONSIVE */
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%);width:var(--sidebar-w)}
