@@ -63,7 +63,7 @@ function doPost(e) {
 function initDatabase(ss) {
   // 1. Tạo hoặc kiểm tra sheet 'entries'
   var entriesSheet = ss.getSheetByName("entries");
-  var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote"];
+  var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt"];
   if (!entriesSheet) {
     entriesSheet = ss.insertSheet("entries");
     entriesSheet.appendRow(entriesHeaders);
@@ -136,7 +136,7 @@ function getSheetData(sheet) {
       var header = headers[c];
       var val = values[r][c];
       // Chuẩn hóa kiểu dữ liệu số và ngày tháng
-      if (header === "amount") {
+      if (header === "amount" || header === "stt") {
         obj[header] = Number(val) || 0;
       } else if (val instanceof Date) {
         if (header === "date" || header === "dueDate") {

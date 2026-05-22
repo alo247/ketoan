@@ -39,7 +39,61 @@ const $ = id => document.getElementById(id);
 const fmt = n => new Intl.NumberFormat('vi-VN').format(n) + ' ₫';
 const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const getNextSTT = () => state.entries.length > 0 ? Math.max(...state.entries.map(e => Number(e.stt) || 0)) + 1 : 1;
 const formatThousand = val => (val || val === 0) ? new Intl.NumberFormat('vi-VN').format(val) : '';
+
+function normalizeDate(d) {
+  if (!d) return today();
+  let s = String(d).trim();
+  
+  // Heal corrupted format "21T17:00:00.000Z/05/2026"
+  if (s.includes('/') && s.includes('T')) {
+    let clean = s.replace(/T\d{2}:\d{2}:\d{2}(\.\d{3})?Z?/gi, '');
+    const parts = clean.split('/');
+    if (parts.length === 3) {
+      let dd = parts[0].replace(/\D/g, '').padStart(2, '0');
+      let mm = parts[1].replace(/\D/g, '').padStart(2, '0');
+      let yyyy = parts[2].replace(/\D/g, '');
+      if (dd && mm && yyyy.length === 4) {
+        return `${yyyy}-${mm}-${dd}`;
+      }
+    }
+  }
+
+  // Strip ISO time part if present: "2026-05-21T17:00:00.000Z" -> "2026-05-21"
+  if (s.includes('T')) {
+    s = s.split(/T/i)[0];
+  }
+  
+  // Standard YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return s;
+  }
+  
+  // DD/MM/YYYY format
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(s)) {
+    const [dd, mm, yyyy] = s.split('/');
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  
+  // Match any DD-MM-YYYY or DD/MM/YYYY
+  const match = s.match(/(\d{1,2})[^\d]+(\d{1,2})[^\d]+(\d{4})/);
+  if (match) {
+    const dd = match[1].padStart(2, '0');
+    const mm = match[2].padStart(2, '0');
+    const yyyy = match[3];
+    return `${yyyy}-${mm}-${dd}`;
+  }
+  
+  try {
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  } catch (e) {}
+  
+  return today();
+}
 
 /* ===== CLOUD SYNC HELPERS ===== */
 window.sendToCloud = async function (payload) {
@@ -128,21 +182,59 @@ async function loadData() {
     state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
     state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
     
-    // Chuẩn hóa định dạng ngày tháng phòng ngừa múi giờ ISO
+    // Chuẩn hóa định dạng ngày tháng phòng ngừa múi giờ ISO và tự động sửa chữa dữ liệu lỗi
     if (state.entries) {
       state.entries.forEach(e => {
-        if (e.date && e.date.includes('T')) e.date = e.date.split('T')[0];
+        e.date = normalizeDate(e.date);
       });
     }
     if (state.advances) {
       state.advances.forEach(a => {
-        if (a.date && a.date.includes('T')) a.date = a.date.split('T')[0];
+        a.date = normalizeDate(a.date);
       });
     }
     if (state.debts) {
       state.debts.forEach(d => {
-        if (d.dueDate && d.dueDate.includes('T')) d.dueDate = d.dueDate.split('T')[0];
+        d.dueDate = normalizeDate(d.dueDate);
       });
+    }
+
+    // Tự động gán STT cố định cho chứng từ cũ (Auto-Migration)
+    if (state.entries && state.entries.length > 0) {
+      let needsMigration = false;
+      let maxSTT = 0;
+      state.entries.forEach(e => {
+        if (e.stt) {
+          const val = Number(e.stt);
+          if (!isNaN(val) && val > maxSTT) maxSTT = val;
+        } else {
+          needsMigration = true;
+        }
+      });
+      if (needsMigration) {
+        const sorted = [...state.entries].sort((a, b) => {
+          const d = (a.date || '').localeCompare(b.date || '');
+          if (d !== 0) return d;
+          const c = (a.createdAt || '').localeCompare(b.createdAt || '');
+          if (c !== 0) return c;
+          return (a.id || '').localeCompare(b.id || '');
+        });
+        sorted.forEach(e => {
+          if (!e.stt || isNaN(Number(e.stt))) {
+            maxSTT++;
+            e.stt = maxSTT;
+          }
+        });
+        saveData();
+        if (SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
+          window.sendToCloud({
+            action: 'restoreAll',
+            entries: state.entries,
+            users: state.users,
+            categories: getCategories()
+          });
+        }
+      }
     }
 
     rebuildIndexes();
@@ -417,6 +509,16 @@ if (overlayEl) {
   });
 }
 
+// Click Close Sidebar button to close mobile sidebar
+const closeSidebarBtn = $('btnCloseSidebar');
+if (closeSidebarBtn) {
+  closeSidebarBtn.addEventListener('click', () => {
+    document.querySelector('.sidebar').classList.remove('mobile-open');
+    const overlay = $('sidebarOverlay');
+    if (overlay) overlay.classList.remove('active');
+  });
+}
+
 /* ===== MODAL ===== */
 function openModal(title, html) {
   $('modalTitle').textContent = title;
@@ -617,11 +719,9 @@ function updateJournalView() {
     if (canDelete) actionButtons.push(`<button class="btn btn-danger btn-sm" onclick="deleteEntry('${e.id}')" title="Xóa giao dịch"><i class="fas fa-trash"></i></button>`);
     const actionsHtml = actionButtons.length ? actionButtons.join(' ') : '<span style="color:var(--text2)">-</span>';
 
-    const globalIndex = (journalPage - 1) * ITEMS_PER_PAGE + i + 1;
-
     return `
       <tr>
-        <td>${globalIndex}</td>
+        <td>${e.stt || '-'}</td>
         <td>${formatDate(e.date)}</td>
         <td><span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span></td>
         <td>${e.category}</td>
@@ -877,7 +977,8 @@ window.saveEntry = function () {
     if (!hasPermission('add')) return toast('Bạn không có quyền thêm giao dịch mới!', 'error');
   }
   const type = $('fType').value;
-  const date = $('fDate').value;
+  const rawDate = $('fDate').value;
+  const date = normalizeDate(rawDate);
   const category = $('fCat').value;
   const amount = parseInt($('fAmount').value.replace(/\D/g, '')) || 0;
   const reason = $('fReason').value.trim();
@@ -888,13 +989,22 @@ window.saveEntry = function () {
   if (state.editingId) {
     const idx = state.entries.findIndex(e => e.id === state.editingId);
     if (idx !== -1) {
+      const oldEntry = { ...state.entries[idx] };
       state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice };
       entry = state.entries[idx];
+      
+      // Write detailed audit log with descriptive text and username
+      writeAuditLog('Sửa giao dịch', `Tài khoản ${state.currentUser.username} sửa chứng từ STT ${entry.stt || '-'} (Trước: ${oldEntry.type === 'thu' ? 'Thu' : 'Chi'}, ${fmt(oldEntry.amount)}, lý do: ${oldEntry.reason} -> Sau: ${type === 'thu' ? 'Thu' : 'Chi'}, ${fmt(amount)}, lý do: ${reason})`);
     }
     toast('Đã cập nhật giao dịch!');
   } else {
-    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString() };
+    const newStt = getNextSTT();
+    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt };
     state.entries.push(entry);
+    
+    // Write detailed audit log with descriptive text and username
+    writeAuditLog('Thêm giao dịch', `Tài khoản ${state.currentUser.username} thêm chứng từ mới STT ${newStt} (${type === 'thu' ? 'Thu' : 'Chi'}, số tiền: ${fmt(amount)}, lý do: ${reason})`);
+    
     toast('Đã thêm giao dịch mới!');
   }
   saveData();
@@ -1029,6 +1139,10 @@ window.updateApprovalStatus = function (entryId, status, keepZoomOpen = false) {
   const idx = state.entries.findIndex(e => e.id === entryId);
   if (idx === -1) return;
   
+  // Chuẩn hóa và bảo vệ ngày tránh bị lỗi múi giờ hoặc định dạng
+  state.entries[idx].date = normalizeDate(state.entries[idx].date);
+  
+  const oldStatus = state.entries[idx].approvalStatus || 'pending';
   state.entries[idx].approvalStatus = status;
   saveData();
   
@@ -1043,6 +1157,10 @@ window.updateApprovalStatus = function (entryId, status, keepZoomOpen = false) {
     rejected: 'Đã từ chối hóa đơn chứng từ!',
     pending: 'Đã chuyển trạng thái hóa đơn về chờ duyệt!'
   };
+  
+  const statusLabels = { pending: 'Chờ duyệt', approved: 'Đã duyệt', rejected: 'Từ chối' };
+  const nowStr = new Date().toLocaleString('vi-VN');
+  writeAuditLog('Phê duyệt hóa đơn', `Tài khoản ${state.currentUser.username} thay đổi trạng thái phê duyệt chứng từ STT ${state.entries[idx].stt || '-'} từ [${statusLabels[oldStatus]}] sang [${statusLabels[status]}]. Thời gian xác nhận: ${nowStr}`);
   
   toast(statusMsgs[status] || 'Đã cập nhật trạng thái phê duyệt!');
   
@@ -1172,14 +1290,17 @@ window.saveAuditStatus = function (entryId) {
   const newStatus = selectedRadio ? selectedRadio.value : 'pending';
   const newNote = document.getElementById('fAuditNote') ? document.getElementById('fAuditNote').value.trim() : '';
   
+  // Chuẩn hóa và bảo vệ ngày tránh bị lỗi múi giờ hoặc định dạng
+  state.entries[idx].date = normalizeDate(state.entries[idx].date);
+  
   state.entries[idx].auditStatus = newStatus;
   state.entries[idx].auditNote = newNote;
   saveData();
   
-  // Ghi nhận lịch sử audit trail
+  // Ghi nhận lịch sử audit trail chi tiết
   const statusLabels = { pending: 'Chờ kiểm soát', valid: 'Hợp lệ', invalid: 'Không hợp lệ' };
   const nowStr = new Date().toLocaleString('vi-VN');
-  const actionDetails = `Kiểm soát giao dịch [Tên đăng nhập: ${state.entries[idx].createdBy || 'không rõ'}]: từ [${statusLabels[oldStatus]}] sang [${statusLabels[newStatus]}]. Xác nhận lúc: ${nowStr}. Ghi chú: "${newNote || 'Không có ghi chú'}"`;
+  const actionDetails = `Người kiểm soát [Tên đăng nhập: ${state.currentUser.username}] xác nhận giao dịch STT ${state.entries[idx].stt || '-'} (${state.entries[idx].type === 'thu' ? 'Thu' : 'Chi'}, số tiền: ${fmt(state.entries[idx].amount)}) là [${statusLabels[newStatus]}]. Xác nhận lúc: ${nowStr}. Ghi chú kiểm soát: "${newNote || 'Không có ghi chú'}"`;
   writeAuditLog('Kiểm soát giao dịch', actionDetails);
   
   // Đồng bộ đám mây
@@ -1195,7 +1316,13 @@ window.saveAuditStatus = function (entryId) {
 
 window.deleteEntry = function (id) {
   if (!hasPermission('delete')) return toast('Bạn không có quyền!', 'error');
-  if (!confirm('Bạn có chắc muốn xoá giao dịch này?')) return;
+  const entry = state.entries.find(e => e.id === id);
+  if (!entry) return;
+  if (!confirm(`Bạn có chắc muốn xoá giao dịch STT ${entry.stt || '-'}?`)) return;
+  
+  // Ghi nhận audit log chi tiết khi xóa
+  writeAuditLog('Xóa giao dịch', `Tài khoản ${state.currentUser.username} xóa chứng từ STT ${entry.stt || '-'} (${entry.type === 'thu' ? 'Thu' : 'Chi'}, số tiền: ${fmt(entry.amount)}, lý do: ${entry.reason || 'Không có lý do'})`);
+  
   state.entries = state.entries.filter(e => e.id !== id);
   saveData();
   window.sendToCloud({ action: 'deleteEntry', id });
@@ -1275,7 +1402,7 @@ $('btnExport').addEventListener('click', () => {
     return a.id.localeCompare(b.id);
   });
   const data = sorted.map((e, i) => ({
-    'STT': i + 1,
+    'STT': e.stt || (i + 1),
     'Ngày': formatDate(e.date),
     'Loại': e.type === 'thu' ? 'Thu' : 'Chi',
     'Danh mục': e.category,
@@ -1313,11 +1440,7 @@ $('btnImport').addEventListener('change', function (e) {
           const d = XLSX.SSF.parse_date_code(rawDate);
           date = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
         } else {
-          date = String(rawDate);
-          if (/^\d{2}\/\d{2}\/\d{4}$/.test(date)) {
-            const [dd, mm, yy] = date.split('/');
-            date = `${yy}-${mm}-${dd}`;
-          }
+          date = normalizeDate(rawDate);
         }
         const typeRaw = (r['Loại'] || r['loại'] || r['Type'] || '').toString().toLowerCase();
         const type = typeRaw.includes('thu') || typeRaw.includes('income') ? 'thu' : 'chi';
@@ -1325,7 +1448,7 @@ $('btnImport').addEventListener('change', function (e) {
         const reason = r['Lý do'] || r['lý do'] || r['Reason'] || r['Ghi chú'] || '';
         const category = r['Danh mục'] || r['danh mục'] || r['Category'] || (type === 'thu' ? 'Thu khác' : 'Chi khác');
         if (date && amount > 0) {
-          state.entries.push({ id: uid(), type, date, category: String(category), amount, reason: String(reason), createdBy: state.currentUser.username, createdAt: new Date().toISOString() });
+          state.entries.push({ id: uid(), type, date, category: String(category), amount, reason: String(reason), createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: getNextSTT() });
           count++;
         }
       });
@@ -1528,7 +1651,7 @@ window.editUserPermissions = function (username) {
         { key: 'delete', label: 'Xóa nhật ký chung', desc: 'Quyền xóa giao dịch hoặc xóa toàn bộ sổ quỹ.' },
         { key: 'invoice', label: 'Tải hóa đơn (Drive)', desc: 'Quyền đính kèm, tải lên hóa đơn chứng từ của giao dịch.' },
         { key: 'cats', label: 'Quản lý danh mục', desc: 'Quyền thêm, sửa, xóa danh mục thu chi động.' },
-        { key: 'reports', label: 'Báo cáo P&L & CFO AI', desc: 'Quyền xem báo cáo P&L chuyên sâu, dự báo dòng tiền và tương tác chatbot CFO AI.' },
+        { key: 'reports', label: 'Báo cáo P&L', desc: 'Quyền xem báo cáo P&L chuyên sâu và dự báo dòng tiền.' },
         { key: 'users', label: 'Quản lý thành viên', desc: 'Quyền thêm, xóa và phân quyền chi tiết cho thành viên khác.' }
       ]
     },
@@ -1692,7 +1815,7 @@ $('btnBackup').addEventListener('click', () => {
     return a.id.localeCompare(b.id);
   });
   const entryData = sorted.map((e, i) => ({
-    'STT': i + 1,
+    'STT': e.stt || (i + 1),
     'Ngày': formatDate(e.date),
     'Loại': e.type === 'thu' ? 'Thu' : 'Chi',
     'Danh mục': e.category,
@@ -2102,7 +2225,6 @@ window.payAdvance = function(id) {
 
   adv.status = 'paid';
   
-  // Tự động hạch toán phiếu chi tạm ứng vào Nhật ký chung
   const journalEntry = {
     id: uid(),
     type: 'chi',
@@ -2112,7 +2234,8 @@ window.payAdvance = function(id) {
     reason: `[Tạm ứng] Chi tiền tạm ứng cho nhân viên ${adv.employee} - Lý do: ${adv.reason}`,
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
-    approvalStatus: 'approved'
+    approvalStatus: 'approved',
+    stt: getNextSTT()
   };
   
   state.entries.push(journalEntry);
@@ -2229,7 +2352,8 @@ window.submitSettlement = function(id) {
     invoice: settlementInvoice,
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
-    approvalStatus: 'approved'
+    approvalStatus: 'approved',
+    stt: getNextSTT()
   };
   state.entries.push(expenseEntry);
   window.sendToCloud({ action: 'saveEntry', entry: expenseEntry });
@@ -2247,7 +2371,8 @@ window.submitSettlement = function(id) {
       reason: `[Quyết toán Tạm ứng] Chi trả bù thêm hoàn ứng cho nhân viên ${adv.employee} (Chi thực tế: ${fmt(spentAmount)} vs Đã ứng: ${fmt(adv.amount)})`,
       createdBy: state.currentUser.username,
       createdAt: new Date().toISOString(),
-      approvalStatus: 'approved'
+      approvalStatus: 'approved',
+      stt: getNextSTT()
     };
     state.entries.push(repayEntry);
     window.sendToCloud({ action: 'saveEntry', entry: repayEntry });
@@ -2263,7 +2388,8 @@ window.submitSettlement = function(id) {
       reason: `[Quyết toán Tạm ứng] Thu hồi tạm ứng thừa từ nhân viên ${adv.employee} (Chi thực tế: ${fmt(spentAmount)} vs Đã ứng: ${fmt(adv.amount)})`,
       createdBy: state.currentUser.username,
       createdAt: new Date().toISOString(),
-      approvalStatus: 'approved'
+      approvalStatus: 'approved',
+      stt: getNextSTT()
     };
     state.entries.push(refundEntry);
     window.sendToCloud({ action: 'saveEntry', entry: refundEntry });
@@ -2478,7 +2604,8 @@ window.payDebt = function(id) {
     reason: `[Công nợ] ${debt.type === 'thu' ? 'Thu hồi công nợ từ' : 'Thanh toán công nợ cho'} đối tác ${debt.partner} - Nội dung: ${debt.reason}`,
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
-    approvalStatus: 'approved'
+    approvalStatus: 'approved',
+    stt: getNextSTT()
   };
 
   state.entries.push(journalEntry);
@@ -2698,7 +2825,8 @@ window.submitNlpEntry = function() {
     reason,
     invoice: '',
     createdBy: state.currentUser.username,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    stt: getNextSTT()
   };
 
   state.entries.push(entry);
@@ -2726,7 +2854,8 @@ window.quickInsertEntry = function(type, category, amount, reason) {
     reason,
     invoice: '',
     createdBy: state.currentUser.username,
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    stt: getNextSTT()
   };
 
   state.entries.push(entry);
@@ -2792,73 +2921,6 @@ window.updatePLStatement = function(list) {
   $('plNetProfit').textContent = fmt(netProfit);
   $('plNetProfit').style.color = netProfit >= 0 ? 'var(--green)' : 'var(--red)';
 
-  // 6. Kích hoạt báo cáo phân tích CFO bằng trí tuệ nhân tạo
-  generateAICommentary(totalIncome, totalCOGS, totalOPEX, netProfit, { sales, service, rawMat, delivery, staff, rent, marketing, utilities, device });
-};
-
-window.generateAICommentary = function(revenue, cogs, opex, profit, details) {
-  const container = $('aiPLCommentaryContent');
-  if (!container) return;
-
-  if (revenue === 0) {
-    container.innerHTML = '<span style="color:var(--text2)">Chưa ghi nhận dòng doanh thu nào trong kỳ này để Trợ lý CFO tiến hành phân tích hiệu năng.</span>';
-    return;
-  }
-
-  let text = '';
-  const profitMargin = (profit / revenue) * 100;
-  
-  if (profit > 0) {
-    text += `🎉 <strong>TÌNH HÌNH TÀI CHÍNH KHỎE MẠNH:</strong> Kỳ này doanh nghiệp ghi nhận mức tăng trưởng có lợi nhuận ròng đạt tỷ suất biên là <strong>${profitMargin.toFixed(1)}%</strong> trên tổng doanh thu. Đây là tín hiệu rất tích cực.<br><br>`;
-  } else {
-    text += `⚠️ <strong>CẢNH BÁO TỐI NGUY HIỂM - THÂM HỤT RÒNG:</strong> Lợi nhuận ròng của kỳ này đang bị âm <strong>${fmt(Math.abs(profit))}</strong>. Doanh nghiệp đang tiêu tiền nhiều hơn thu vào.<br><br>`;
-  }
-
-  // Tách biệt rò rỉ dòng tiền (Leak Analysis)
-  let leakAnalysis = [];
-  const cogsRatio = (cogs / revenue) * 100;
-  const opexRatio = (opex / revenue) * 100;
-
-  if (cogsRatio > 50) {
-    leakAnalysis.push(`- <strong>Giá vốn trực tiếp (COGS) quá cao (${cogsRatio.toFixed(1)}% doanh thu):</strong> Chi phí nhập nguyên vật liệu, vật tư và giao nhận hàng (${fmt(cogs)}) đang bào mòn biên lợi nhuận gộp.`);
-  }
-  if (opexRatio > 40) {
-    leakAnalysis.push(`- <strong>Chi phí quản lý vận hành (OPEX) cồng kềnh (${opexRatio.toFixed(1)}% doanh thu):</strong> Tổng chi phí văn phòng và nhân công cố định là ${fmt(opex)}.`);
-  }
-
-  // Phân tích chi phí cao nhất
-  const opexNames = ['Lương & Nhân công', 'Thuê mặt bằng', 'Marketing quảng cáo', 'Điện nước utilities', 'Thiết bị máy móc'];
-  const opexVals = [details.staff, details.rent, details.marketing, details.utilities, details.device];
-  const maxIdx = opexVals.indexOf(Math.max(...opexVals));
-  if (opexVals[maxIdx] > 0 && opexVals[maxIdx] / revenue > 0.15) {
-    leakAnalysis.push(`- <strong>Điểm rò rỉ chính là ${opexNames[maxIdx]}:</strong> Chi phí này đang chiếm tới <strong>${fmt(opexVals[maxIdx])}</strong> (${((opexVals[maxIdx]/revenue)*100).toFixed(1)}% doanh thu).`);
-  }
-
-  if (leakAnalysis.length > 0) {
-    text += `🔍 <strong>Các lỗ hổng dòng tiền phát hiện tự động:</strong><br>${leakAnalysis.join('<br>')}<br><br>`;
-  } else {
-    text += `✅ <strong>HỆ THỐNG VẬN HÀNH TỐI ƯU:</strong> Chỉ số giá vốn (${cogsRatio.toFixed(1)}%) và chi phí vận hành (${opexRatio.toFixed(1)}%) đang nằm trong ngưỡng kiểm soát lý tưởng.<br><br>`;
-  }
-
-  // Ý kiến tư vấn của CFO (Executive CFO Recommendations)
-  text += `💡 <strong>Khuyến nghị chiến lược CFO Việt Nam:</strong><br>`;
-  if (profit <= 0 || cogsRatio > 50 || opexRatio > 40) {
-    if (cogsRatio > 50) {
-      text += `1. Xem xét đàm phán lại hợp đồng khung với nhà cung ứng vật tư lớn hoặc tối ưu lại quy trình vận chuyển giao vận để cắt giảm giá vốn.<br>`;
-    }
-    if (details.marketing / revenue > 0.20) {
-      text += `2. Cắt giảm ngay các chiến dịch quảng cáo không sinh chuyển đổi trực tiếp. Giảm ngân sách Marketing (${fmt(details.marketing)}) chỉ giữ các phễu cốt lõi.<br>`;
-    }
-    if (details.staff / revenue > 0.30) {
-      text += `3. Định biên lại năng suất lao động, tối ưu hiệu năng nhân sự cố định, cắt giảm giờ làm thêm không cấp thiết.<br>`;
-    }
-    text += `4. Trì hoãn tạm thời các dự án mua sắm máy móc thiết bị văn phòng chưa tạo ra tiền ngay lập tức, siết định mức chi vặt nội bộ.<br>`;
-  } else {
-    text += `1. Tiếp tục đẩy mạnh phễu bán lẻ sinh lời cao hiện tại và giữ vững định biên kiểm soát OPEX.<br>`;
-    text += `2. Trích lập quỹ dự phòng dòng tiền 3 tháng vận hành và cân nhắc giải ngân mở rộng sản xuất hoặc tối ưu sớm công nợ NCC để hưởng chiết khấu trả sớm.<br>`;
-  }
-
-  container.innerHTML = text;
 };
 
 window.exportPLToExcel = function() {
@@ -3044,136 +3106,6 @@ window.generateForecastChart = function() {
 };
 
 
-/* ===== FLOATING INTERACTIVE AI CFO CHATBOT ===== */
-window.initChatbot = function() {
-  const btnToggle = $('btnToggleChatbot');
-  const btnClose = $('btnCloseChatbot');
-  const chatbotWin = $('chatbotWindow');
-  const btnSend = $('btnSendChatbotMessage');
-  const chatInput = $('chatbotInput');
-
-  if (!btnToggle || !chatbotWin) return;
-
-  btnToggle.addEventListener('click', () => {
-    chatbotWin.classList.toggle('hidden');
-    const pulse = btnToggle.querySelector('.pulse-ring');
-    if (pulse) pulse.style.display = 'none';
-  });
-
-  btnClose.addEventListener('click', () => {
-    chatbotWin.classList.add('hidden');
-  });
-
-  btnSend.addEventListener('click', () => {
-    submitChatbotQuery();
-  });
-
-  chatInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') submitChatbotQuery();
-  });
-};
-
-function submitChatbotQuery() {
-  const input = $('chatbotInput');
-  const query = input.value.trim();
-  if (!query) return;
-
-  appendChatMessage(query, 'user');
-  input.value = '';
-
-  // Hiệu ứng gõ phím
-  const typingId = 'chat-typing-' + Date.now();
-  const messagesContainer = $('chatbotMessages');
-  const typingEl = document.createElement('div');
-  typingEl.className = 'chat-message bot';
-  typingEl.id = typingId;
-  typingEl.innerHTML = `<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span>`;
-  messagesContainer.appendChild(typingEl);
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
-
-  setTimeout(() => {
-    typingEl.remove();
-    const reply = processChatbotQuery(query);
-    appendChatMessage(reply, 'bot');
-  }, 700);
-}
-
-function appendChatMessage(text, sender) {
-  const messagesContainer = $('chatbotMessages');
-  if (!messagesContainer) return;
-
-  const msgEl = document.createElement('div');
-  msgEl.className = `chat-message ${sender}`;
-  msgEl.innerHTML = text.replace(/\n/g, '<br>');
-  messagesContainer.appendChild(msgEl);
-  messagesContainer.scrollTop = messagesContainer.scrollHeight;
-}
-
-window.processChatbotQuery = function(query) {
-  const q = query.toLowerCase();
-  
-  const s = calcStats(state.entries);
-  const now = new Date();
-  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  
-  const thisMonthEntries = state.entries.filter(e => e.date.startsWith(currentMonthStr));
-  const mStats = calcStats(thisMonthEntries);
-
-  // 1. Kiểm tra số dư quỹ
-  if (q.includes('số dư') || q.includes('còn bao nhiêu') || q.includes('tiền mặt') || q.includes('quỹ hiện tại') || q.includes('dòng tiền')) {
-    return `💵 <strong>Báo cáo số dư quỹ thực tế:</strong><br>Tổng tiền mặt khả dụng hiện tại trong két là <strong>${fmt(s.profit)}</strong>.<br>- Tổng thu hạch toán: ${fmt(s.income)}<br>- Tổng chi thực tế: ${fmt(s.expense)}`;
-  }
-
-  // 2. Doanh thu
-  if (q.includes('doanh thu') || q.includes('tiền vào') || q.includes('thu tháng') || q.includes('thu nhập')) {
-    return `📈 <strong>Hiệu suất doanh thu kỳ này:</strong><br>- Doanh thu tháng này (${now.getMonth()+1}/${now.getFullYear()}) đạt: <strong>${fmt(mStats.income)}</strong>.<br>- Toàn bộ thời gian tích lũy: <strong>${fmt(s.income)}</strong>.`;
-  }
-
-  // 3. Chi phí
-  if (q.includes('chi phí') || q.includes('tiền ra') || q.includes('chi tháng') || q.includes('chi tiêu')) {
-    const categoriesGroup = {};
-    thisMonthEntries.filter(e => e.type === 'chi').forEach(e => {
-      categoriesGroup[e.category] = (categoriesGroup[e.category] || 0) + e.amount;
-    });
-    
-    let breakDown = '';
-    Object.keys(categoriesGroup).forEach(cat => {
-      breakDown += `- ${cat}: ${fmt(categoriesGroup[cat])}<br>`;
-    });
-
-    return `📉 <strong>Cơ cấu chi tiêu & Dòng chi tháng này:</strong><br>Tổng chi hạch toán tháng này là <strong>${fmt(mStats.expense)}</strong>.<br><br><strong>Danh mục phân bổ chi tiết:</strong><br>${breakDown || '- Chưa ghi nhận khoản chi tiêu nào trong tháng.'}`;
-  }
-
-  // 4. Công nợ
-  if (q.includes('công nợ') || q.includes('nợ') || q.includes('phải thu') || q.includes('phải trả') || q.includes('nhắc nợ')) {
-    const rec = state.debts.filter(d => d.type === 'thu' && d.status === 'unpaid').reduce((sum, d) => sum + d.amount, 0);
-    const pay = state.debts.filter(d => d.type === 'chi' && d.status === 'unpaid').reduce((sum, d) => sum + d.amount, 0);
-    
-    return `📝 <strong>Báo cáo tổng hợp công nợ hiện tại:</strong><br>- <strong>Phải thu từ khách hàng:</strong> ${fmt(rec)}<br>- <strong>Phải trả nhà cung cấp:</strong> ${fmt(pay)}<br><br>👉 Bạn có thể chuyển qua mục <strong>'Công nợ'</strong> để đối soát thanh toán hoặc tạo tin nhắn nhắc nợ Zalo/Telegram nhanh!`;
-  }
-
-  // 5. Tạm ứng
-  if (q.includes('tạm ứng') || q.includes('hoàn ứng') || q.includes('ứng tiền')) {
-    const pending = state.advances.filter(a => a.status === 'pending').length;
-    const paid = state.advances.filter(a => a.status === 'paid').length;
-    
-    return `💸 <strong>Thông số quỹ tạm ứng nhân viên:</strong><br>- Đang chờ duyệt chi: <strong>${pending}</strong> đề xuất.<br>- Đang chờ hoàn hóa đơn: <strong>${paid}</strong> khoản.<br><br>👉 Hãy bảo vệ dòng tiền bằng cách đối soát hoàn ứng nhanh sau tối đa 7 ngày làm việc!`;
-  }
-
-  // 6. Dự báo
-  if (q.includes('dự báo') || q.includes('tương lai') || q.includes('xu hướng')) {
-    return `🔮 <strong>Dự báo dòng tiền AI:</strong><br>Báo cáo đồ thị dự báo 30 ngày tới sử dụng thuật toán hồi quy tuyến tính đã được cập nhật hoàn chỉnh.<br>Vui lòng chuyển qua tab <strong>'Báo cáo'</strong> để xem trực quan xu hướng dòng tiền tăng/giảm và các gợi ý bảo vệ quỹ!`;
-  }
-
-  // 7. Giải pháp / Lời khuyên tư vấn tài chính doanh nghiệp
-  if (q.includes('lời khuyên') || q.includes('tư vấn') || q.includes('giải pháp') || q.includes('giúp tôi')) {
-    return `💡 <strong>Tư vấn từ Chuyên gia Tài chính Doanh nghiệp:</strong><br>Để tối ưu hóa cấu trúc vốn, doanh nghiệp nên:<br>1. Giữ chi phí OPEX (vận hành) dưới 35% doanh số để đảm bảo biên an toàn cao.<br>2. Siết chặt công nợ phải thu, khuyến khích khách hàng thanh toán sớm bằng chiết khấu 1-2%.<br>3. Xem chi tiết cảnh báo rò rỉ tại <strong>'Báo cáo P&L'</strong> để biết chi phí nào đang tăng đột biến kỳ này!`;
-  }
-
-  // 8. Fallback
-  return `🤖 Xin chào! Tôi là Trợ lý tài chính & CFO ảo Việt Nam. Tôi có thể giải đáp nhanh tất cả số liệu hạch toán thực tế:<br>- Gõ <strong>'số dư'</strong> để xem két tiền mặt.<br>- Gõ <strong>'doanh thu'</strong> hoặc <strong>'chi phí'</strong> để xem tình hình thu chi tháng này.<br>- Gõ <strong>'công nợ'</strong> để kiểm toán tiền nợ khách hàng.<br>- Gõ <strong>'tạm ứng'</strong> để xem sổ tạm ứng nhân viên.<br>- Gõ <strong>'lời khuyên'</strong> để nhận phân tích tư vấn strategic.`;
-};
-
 
 /* ===== EVENT WIRING & ADAPTER CORES ===== */
 function wireUpAdvancedModules() {
@@ -3215,5 +3147,4 @@ function wireUpAdvancedModules() {
   initTheme();
   window.populateFilterCategories();
   wireUpAdvancedModules();
-  initChatbot();
 })();

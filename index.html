@@ -58,6 +58,7 @@
             <div class="sidebar-header">
                 <i class="fas fa-wallet"></i>
                 <span>Thu Chi</span>
+                <button class="btn-close-sidebar" id="btnCloseSidebar" title="Đóng menu"><i class="fas fa-times"></i></button>
             </div>
             <ul class="sidebar-menu">
                 <li class="active" data-page="dashboard">
@@ -485,15 +486,7 @@
                         </div>
                     </div>
                     
-                    <!-- AI MONTHLY ANALYSIS COMMENTS BOX -->
-                    <div id="aiPLCommentaryBox" style="margin-top:16px;background:rgba(99,102,241,0.08);border:1px dashed var(--primary);border-radius:10px;padding:16px;line-height:1.6">
-                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:600;color:#818cf8">
-                            <i class="fas fa-robot"></i> <span>🤖 Trợ Lý Tài Chính AI - Phân Tích & Khuyến Nghị Kỳ Này:</span>
-                        </div>
-                        <div id="aiPLCommentaryContent" style="font-size:0.88rem;color:var(--text)">
-                            Đang phân tích số liệu tài chính để lập báo cáo P&L tự động...
-                        </div>
-                    </div>
+
                 </div>
             </section>
 
@@ -573,36 +566,7 @@
     <!-- TOAST -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <!-- FLOATING AI FINANCIAL CHATBOT -->
-    <div id="aiFloatingChatbot" class="ai-floating-chatbot">
-        <button id="btnToggleChatbot" class="btn-toggle-chatbot" title="Hỏi Trợ Lý Tài Chính AI">
-            <i class="fas fa-robot"></i>
-            <span class="pulse-ring"></span>
-        </button>
-        <div id="chatbotWindow" class="chatbot-window hidden">
-            <div class="chatbot-header">
-                <div class="chatbot-header-title">
-                    <i class="fas fa-robot"></i>
-                    <div>
-                        <strong>Trợ Lý Tài Chính AI</strong>
-                        <small>Hoạt động trực tuyến</small>
-                    </div>
-                </div>
-                <button id="btnCloseChatbot" class="btn-close-chatbot">&times;</button>
-            </div>
-            <div id="chatbotMessages" class="chatbot-messages">
-                <div class="chat-message bot">
-                    Xin chào! Tôi là Trợ lý Tài chính AI. Bạn có thể hỏi tôi về báo cáo thu chi, dự báo dòng tiền, kiểm tra công nợ hoặc phân tích tình hình kinh doanh tháng này. Hãy nhập câu hỏi bên dưới nhé!
-                </div>
-            </div>
-            <div class="chatbot-input-area">
-                <input type="text" id="chatbotInput" placeholder="Hỏi tôi: 'doanh thu tháng này thế nào?'..." autocomplete="off">
-                <button id="btnSendChatbotMessage" class="btn-send-message">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
-        </div>
-    </div>
+
 
     <script src="data.js?v=1.0.1"></script>
     <script src="app.js?v=1.0.1"></script>
