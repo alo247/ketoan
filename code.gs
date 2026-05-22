@@ -1,5 +1,6 @@
 // GOOGLE APPS SCRIPT: HỆ THỐNG KẾ TOÁN NỘI BỘ PREMIUM
 // Cập nhật: Hỗ trợ kiểm soát soát xét (auditStatus, auditNote), tự động nâng cấp cấu trúc cột CSDL online
+// Bổ sung: Đồng bộ đám mây thời gian thực chéo thiết bị cho Tạm ứng (advances), Công nợ (debts), Audit Logs (auditLogs)
 
 function doGet(e) {
   try {
@@ -9,7 +10,10 @@ function doGet(e) {
     var data = {
       entries: getSheetData(ss.getSheetByName("entries")),
       users: getSheetData(ss.getSheetByName("users")),
-      categories: getCategoriesData(ss.getSheetByName("categories"))
+      categories: getCategoriesData(ss.getSheetByName("categories")),
+      advances: getSheetData(ss.getSheetByName("advances")),
+      debts: getSheetData(ss.getSheetByName("debts")),
+      auditLogs: getSheetData(ss.getSheetByName("auditLogs"))
     };
     
     return ContentService.createTextOutput(JSON.stringify(data))
@@ -46,7 +50,19 @@ function doPost(e) {
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
     } else if (action === "restoreAll") {
-      result = restoreAll(ss, payload.entries, payload.users, payload.categories);
+      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs);
+    } else if (action === "saveAdvance") {
+      result = saveAdvance(ss, payload.advance, payload.fileData);
+    } else if (action === "deleteAdvance") {
+      result = deleteAdvance(ss, payload.id);
+    } else if (action === "saveDebt") {
+      result = saveDebt(ss, payload.debt);
+    } else if (action === "deleteDebt") {
+      result = deleteDebt(ss, payload.id);
+    } else if (action === "saveAuditLog") {
+      result = saveAuditLog(ss, payload.auditLog);
+    } else if (action === "clearAuditLogs") {
+      result = clearAuditLogs(ss);
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -63,6 +79,12 @@ function doPost(e) {
 // KHỞI TẠO VÀ CẬP NHẬT CẤU TRÚC SHEET (DATABASE AUTO-UPGRADE)
 // -------------------------------------------------------------
 function initDatabase(ss) {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get("db_initialized_v4"); // Nâng cấp phiên bản db_initialized
+  if (cached === "true") {
+    return; // Đã khởi tạo cấu trúc CSDL trực tuyến, bỏ qua để tăng tốc tối đa
+  }
+
   // 1. Tạo hoặc kiểm tra sheet 'entries'
   var entriesSheet = ss.getSheetByName("entries");
   var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt"];
@@ -120,6 +142,36 @@ function initDatabase(ss) {
       catsSheet.appendRow(defaultCats[j]);
     }
   }
+
+  // 4. Tạo hoặc kiểm tra sheet 'advances' (Tạm ứng)
+  var advSheet = ss.getSheetByName("advances");
+  var advHeaders = ["id", "employee", "amount", "date", "reason", "status", "invoice", "settledAmount", "settledDate", "settlementInvoice"];
+  if (!advSheet) {
+    advSheet = ss.insertSheet("advances");
+    advSheet.appendRow(advHeaders);
+    advSheet.getRange(1, 1, 1, advHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+  }
+
+  // 5. Tạo hoặc kiểm tra sheet 'debts' (Công nợ)
+  var debtsSheet = ss.getSheetByName("debts");
+  var debtsHeaders = ["id", "type", "partner", "amount", "dueDate", "reason", "status", "paymentDate"];
+  if (!debtsSheet) {
+    debtsSheet = ss.insertSheet("debts");
+    debtsSheet.appendRow(debtsHeaders);
+    debtsSheet.getRange(1, 1, 1, debtsHeaders.length).setFontWeight("bold").setBackground("#c9daf8");
+  }
+
+  // 6. Tạo hoặc kiểm tra sheet 'auditLogs' (Nhật ký kiểm toán)
+  var auditSheet = ss.getSheetByName("auditLogs");
+  var auditHeaders = ["timestamp", "username", "role", "action", "details"];
+  if (!auditSheet) {
+    auditSheet = ss.insertSheet("auditLogs");
+    auditSheet.appendRow(auditHeaders);
+    auditSheet.getRange(1, 1, 1, auditHeaders.length).setFontWeight("bold").setBackground("#f3f4f6");
+  }
+
+  // Lưu trạng thái đã khởi tạo cấu trúc CSDL vào Cache trong 6 giờ (21600 giây)
+  cache.put("db_initialized_v4", "true", 21600);
 }
 
 // -------------------------------------------------------------
@@ -138,10 +190,10 @@ function getSheetData(sheet) {
       var header = headers[c];
       var val = values[r][c];
       // Chuẩn hóa kiểu dữ liệu số và ngày tháng
-      if (header === "amount" || header === "stt") {
+      if (header === "amount" || header === "stt" || header === "settledAmount") {
         obj[header] = Number(val) || 0;
       } else if (val instanceof Date) {
-        if (header === "date" || header === "dueDate") {
+        if (header === "date" || header === "dueDate" || header === "settledDate" || header === "paymentDate") {
           var yyyy = val.getFullYear();
           var mm = String(val.getMonth() + 1).padStart(2, '0');
           var dd = String(val.getDate()).padStart(2, '0');
@@ -180,8 +232,6 @@ function saveEntry(ss, entry, fileData) {
   var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
   
   var idColIdx = headers.indexOf("id");
-  var invoiceColIdx = headers.indexOf("invoice");
-  
   if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong CSDL!" };
   
   // 1. Upload hóa đơn lên Google Drive nếu có file đính kèm gửi lên
@@ -210,7 +260,7 @@ function saveEntry(ss, entry, fileData) {
     var val = entry[header];
     if (val === undefined || val === null) {
       rowValues.push("");
-    } else if (header === "amount") {
+    } else if (header === "amount" || header === "stt") {
       rowValues.push(Number(val) || 0);
     } else {
       rowValues.push(val);
@@ -335,7 +385,6 @@ function deleteCat(ss, type, idx) {
         sheet.deleteRow(r + 1);
         
         // Tự động xoá toàn bộ danh mục con đi kèm
-        // Cần duyệt ngược để tránh lệch chỉ số khi xoá hàng
         var valuesAfterDelete = sheet.getDataRange().getValues();
         for (var i = valuesAfterDelete.length - 1; i >= 1; i--) {
           if (valuesAfterDelete[i][0] === type && valuesAfterDelete[i][1].startsWith(targetCat + " > ")) {
@@ -359,6 +408,170 @@ function clearJournal(ss) {
 }
 
 // -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: TẠM ỨNG (advances)
+// -------------------------------------------------------------
+function saveAdvance(ss, advance, fileData) {
+  var sheet = ss.getSheetByName("advances");
+  var headers = ["id", "employee", "amount", "date", "reason", "status", "invoice", "settledAmount", "settledDate", "settlementInvoice"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong advances!" };
+  
+  // Upload hóa đơn hoàn ứng lên Google Drive nếu có file đính kèm gửi lên
+  var invoiceUrl = advance.settlementInvoice || "";
+  var driveError = false;
+  
+  if (fileData && fileData.base64) {
+    try {
+      var folder = getOrCreateFolder("KeToan_HoaDon");
+      var decoded = Utilities.base64Decode(fileData.base64);
+      var blob = Utilities.newBlob(decoded, fileData.mimeType, fileData.name);
+      var file = folder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      invoiceUrl = file.getUrl();
+      advance.settlementInvoice = invoiceUrl;
+    } catch (e) {
+      Logger.log("Lỗi tải Drive hoàn ứng: " + e.toString());
+      driveError = true;
+    }
+  }
+  
+  var rowValues = [];
+  for (var c = 0; c < headers.length; c++) {
+    var header = headers[c];
+    var val = advance[header];
+    if (val === undefined || val === null) {
+      rowValues.push("");
+    } else if (header === "amount" || header === "settledAmount") {
+      rowValues.push(Number(val) || 0);
+    } else {
+      rowValues.push(val);
+    }
+  }
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === advance.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  
+  return { success: true, invoiceUrl: invoiceUrl, driveError: driveError };
+}
+
+function deleteAdvance(ss, id) {
+  var sheet = ss.getSheetByName("advances");
+  var headers = ["id", "employee", "amount", "date", "reason", "status", "invoice", "settledAmount", "settledDate", "settlementInvoice"];
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id'!" };
+  
+  var values = sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === id) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Tạm ứng không tồn tại trên Cloud!" };
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: CÔNG NỢ (debts)
+// -------------------------------------------------------------
+function saveDebt(ss, debt) {
+  var sheet = ss.getSheetByName("debts");
+  var headers = ["id", "type", "partner", "amount", "dueDate", "reason", "status", "paymentDate"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong debts!" };
+  
+  var rowValues = [];
+  for (var c = 0; c < headers.length; c++) {
+    var header = headers[c];
+    var val = debt[header];
+    if (val === undefined || val === null) {
+      rowValues.push("");
+    } else if (header === "amount") {
+      rowValues.push(Number(val) || 0);
+    } else {
+      rowValues.push(val);
+    }
+  }
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === debt.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
+}
+
+function deleteDebt(ss, id) {
+  var sheet = ss.getSheetByName("debts");
+  var headers = ["id", "type", "partner", "amount", "dueDate", "reason", "status", "paymentDate"];
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id'!" };
+  
+  var values = sheet.getRange(1, 1, sheet.getLastRow(), 1).getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === id) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Công nợ không tồn tại trên Cloud!" };
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: AUDIT LOGS (auditLogs)
+// -------------------------------------------------------------
+function saveAuditLog(ss, auditLog) {
+  var sheet = ss.getSheetByName("auditLogs");
+  var headers = ["timestamp", "username", "role", "action", "details"];
+  
+  var rowValues = [];
+  for (var c = 0; c < headers.length; c++) {
+    var header = headers[c];
+    var val = auditLog[header];
+    rowValues.push(val === undefined || val === null ? "" : val);
+  }
+  
+  sheet.appendRow(rowValues);
+  
+  // Giới hạn 1000 logs trên Cloud để tránh phình to trang tính
+  if (sheet.getLastRow() > 1001) {
+    sheet.deleteRow(2);
+  }
+  
+  return { success: true };
+}
+
+function clearAuditLogs(ss) {
+  var sheet = ss.getSheetByName("auditLogs");
+  if (sheet.getLastRow() >= 2) {
+    sheet.deleteRows(2, sheet.getLastRow() - 1);
+  }
+  return { success: true };
+}
+
+// -------------------------------------------------------------
 // THƯ MỤC LƯU FILE HÓA ĐƠN
 // -------------------------------------------------------------
 function getOrCreateFolder(folderName) {
@@ -372,7 +585,7 @@ function getOrCreateFolder(folderName) {
 // -------------------------------------------------------------
 // ĐỒNG BỘ TOÀN BỘ CƠ SỞ DỮ LIỆU (RESTORE ALL)
 // -------------------------------------------------------------
-function restoreAll(ss, entries, users, categories) {
+function restoreAll(ss, entries, users, categories, advances, debts, auditLogs) {
   try {
     // 1. Đồng bộ Entries (Nhật Ký Chung)
     if (entries && Array.isArray(entries)) {
@@ -442,6 +655,90 @@ function restoreAll(ss, entries, users, categories) {
         catSheet.getRange(2, 1, catRows.length, 2).setValues(catRows);
       }
     }
+
+    // 4. Đồng bộ Advances (Tạm ứng)
+    if (advances && Array.isArray(advances)) {
+      var advSheet = ss.getSheetByName("advances");
+      if (advSheet.getLastRow() >= 2) {
+        advSheet.deleteRows(2, advSheet.getLastRow() - 1);
+      }
+      var advHeaders = ["id", "employee", "amount", "date", "reason", "status", "invoice", "settledAmount", "settledDate", "settlementInvoice"];
+      var advRows = [];
+      for (var a = 0; a < advances.length; a++) {
+        var adv = advances[a];
+        var rowValues = [];
+        for (var c = 0; c < advHeaders.length; c++) {
+          var header = advHeaders[c];
+          var val = adv[header];
+          if (val === undefined || val === null) {
+            rowValues.push("");
+          } else if (header === "amount" || header === "settledAmount") {
+            rowValues.push(Number(val) || 0);
+          } else {
+            rowValues.push(val);
+          }
+        }
+        advRows.push(rowValues);
+      }
+      if (advRows.length > 0) {
+        advSheet.getRange(2, 1, advRows.length, advHeaders.length).setValues(advRows);
+      }
+    }
+
+    // 5. Đồng bộ Debts (Công nợ)
+    if (debts && Array.isArray(debts)) {
+      var debtsSheet = ss.getSheetByName("debts");
+      if (debtsSheet.getLastRow() >= 2) {
+        debtsSheet.deleteRows(2, debtsSheet.getLastRow() - 1);
+      }
+      var debtsHeaders = ["id", "type", "partner", "amount", "dueDate", "reason", "status", "paymentDate"];
+      var debtsRows = [];
+      for (var d = 0; d < debts.length; d++) {
+        var debt = debts[d];
+        var rowValues = [];
+        for (var c = 0; c < debtsHeaders.length; c++) {
+          var header = debtsHeaders[c];
+          var val = debt[header];
+          if (val === undefined || val === null) {
+            rowValues.push("");
+          } else if (header === "amount") {
+            rowValues.push(Number(val) || 0);
+          } else {
+            rowValues.push(val);
+          }
+        }
+        debtsRows.push(rowValues);
+      }
+      if (debtsRows.length > 0) {
+        debtsSheet.getRange(2, 1, debtsRows.length, debtsHeaders.length).setValues(debtsRows);
+      }
+    }
+
+    // 6. Đồng bộ Audit Logs (Nhật ký kiểm toán)
+    if (auditLogs && Array.isArray(auditLogs)) {
+      var auditSheet = ss.getSheetByName("auditLogs");
+      if (auditSheet.getLastRow() >= 2) {
+        auditSheet.deleteRows(2, auditSheet.getLastRow() - 1);
+      }
+      var auditHeaders = ["timestamp", "username", "role", "action", "details"];
+      var auditRows = [];
+      for (var l = 0; l < auditLogs.length; l++) {
+        var log = auditLogs[l];
+        var rowValues = [];
+        for (var c = 0; c < auditHeaders.length; c++) {
+          var header = auditHeaders[c];
+          var val = log[header];
+          rowValues.push(val === undefined || val === null ? "" : val);
+        }
+        auditRows.push(rowValues);
+      }
+      if (auditRows.length > 0) {
+        // Chỉ lấy tối đa 1000 bản ghi mới nhất để ghi vào sheet
+        var slicedRows = auditRows.slice(-1000);
+        auditSheet.getRange(2, 1, slicedRows.length, auditHeaders.length).setValues(slicedRows);
+      }
+    }
+
     return { success: true };
   } catch (err) {
     return { success: false, error: err.toString() };

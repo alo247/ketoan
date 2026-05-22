@@ -96,6 +96,40 @@ function normalizeDate(d) {
 }
 
 /* ===== CLOUD SYNC HELPERS ===== */
+const syncChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('ketoan_sync') : null;
+let pollingTimeout = null;
+
+window.triggerSync = async function () {
+  if (!state.currentUser) return;
+  if (pollingTimeout) {
+    clearTimeout(pollingTimeout);
+  }
+  await loadData(true);
+  triggerViewUpdate();
+  if (typeof runPolling === 'function') {
+    const delay = document.visibilityState === 'visible' ? 4000 : 30000;
+    pollingTimeout = setTimeout(runPolling, delay);
+  }
+};
+
+if (syncChannel) {
+  syncChannel.onmessage = async (event) => {
+    if (event.data === 'sync' && state.currentUser) {
+      await window.triggerSync();
+    }
+  };
+}
+
+window.addEventListener('focus', async () => {
+  await window.triggerSync();
+});
+
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    await window.triggerSync();
+  }
+});
+
 window.sendToCloud = async function (payload) {
   if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) return;
   try {
@@ -111,14 +145,61 @@ window.sendToCloud = async function (payload) {
       if (data.driveError) {
         toast("Giao dịch đã lưu, nhưng chứng từ lưu Drive thất bại do lỗi phân quyền Apps Script!", "error");
       }
-      if (data.invoiceUrl && payload.entry) {
+      
+      // Xóa cờ _unsynced sau khi đã lưu thành công lên Cloud
+      if (payload.action === 'saveEntry' && payload.entry) {
         const entryId = payload.entry.id;
         const idx = state.entries.findIndex(e => e.id === entryId);
         if (idx !== -1) {
-          state.entries[idx].invoice = data.invoiceUrl;
-          saveData();
-          updateJournalView();
+          delete state.entries[idx]._unsynced;
         }
+      } else if (payload.action === 'saveAdvance' && payload.advance) {
+        const advId = payload.advance.id;
+        const idx = state.advances.findIndex(a => a.id === advId);
+        if (idx !== -1) {
+          delete state.advances[idx]._unsynced;
+        }
+      } else if (payload.action === 'saveDebt' && payload.debt) {
+        const debtId = payload.debt.id;
+        const idx = state.debts.findIndex(d => d.id === debtId);
+        if (idx !== -1) {
+          delete state.debts[idx]._unsynced;
+        }
+      } else if (payload.action === 'restoreAll') {
+        state.entries.forEach(e => {
+          delete e._unsynced;
+        });
+        state.advances.forEach(a => {
+          delete a._unsynced;
+        });
+        state.debts.forEach(d => {
+          delete d._unsynced;
+        });
+      }
+
+      if (data.invoiceUrl) {
+        if (payload.entry) {
+          const entryId = payload.entry.id;
+          const idx = state.entries.findIndex(e => e.id === entryId);
+          if (idx !== -1) {
+            state.entries[idx].invoice = data.invoiceUrl;
+          }
+        }
+        if (payload.advance) {
+          const advId = payload.advance.id;
+          const idx = state.advances.findIndex(a => a.id === advId);
+          if (idx !== -1) {
+            state.advances[idx].settlementInvoice = data.invoiceUrl;
+          }
+        }
+      }
+
+      saveData();
+      updateJournalView();
+      
+      // Phát thông báo đồng bộ tức thời cho các tab trình duyệt khác
+      if (syncChannel) {
+        syncChannel.postMessage('sync');
       }
     }
   } catch (err) {
@@ -127,10 +208,10 @@ window.sendToCloud = async function (payload) {
   }
 };
 
-async function loadData() {
+async function loadData(silent = false) {
   const loadingId = 'cloudLoading';
   let loadingEl = $(loadingId);
-  if (!loadingEl && SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
+  if (!silent && !loadingEl && SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
     loadingEl = document.createElement('div');
     loadingEl.id = loadingId;
     loadingEl.innerHTML = '<div style="position:fixed;bottom:15px;right:15px;background:rgba(20,20,30,0.9);color:#38ef7d;padding:12px 20px;border-radius:30px;font-size:0.82rem;box-shadow:0 4px 15px rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;gap:8px;border:1px solid rgba(56,239,125,0.2);font-family:Inter,sans-serif;"><i class="fas fa-sync-alt fa-spin"></i> Đang tải dữ liệu đám mây...</div>';
@@ -139,24 +220,34 @@ async function loadData() {
 
   try {
     if (SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
-      const res = await fetch(SCRIPT_URL);
+      // Tải dữ liệu kèm cơ chế Cache-Busting để luôn nhận dữ liệu mới nhất
+      const cacheBustUrl = SCRIPT_URL + (SCRIPT_URL.includes('?') ? '&' : '?') + '_t=' + Date.now();
+      const res = await fetch(cacheBustUrl);
       const data = await res.json();
 
       const serverEntries = data.entries || [];
       const localEntries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
 
-      // Thuật toán gộp thông minh (Smart Merge):
-      // 1. Bảo vệ các giao dịch mới tạo ở local chưa kịp đồng bộ lên Cloud để tránh mất dữ liệu khi F5
-      // 2. Bảo vệ hóa đơn cục bộ (dạng base64) không bị ghi đè bởi cột rỗng từ server
+      // Thuật toán gộp thông minh (Smart Merge) nâng cấp cho Entries
       const mergedEntries = [...serverEntries];
       localEntries.forEach(le => {
         const se = serverEntries.find(x => x.id === le.id);
         if (!se) {
-          mergedEntries.push(le);
-        } else if (le.invoice && le.invoice.startsWith('data:') && !se.invoice) {
-          const idx = mergedEntries.findIndex(x => x.id === se.id);
-          if (idx !== -1) {
-            mergedEntries[idx] = { ...se, invoice: le.invoice };
+          if (le._unsynced) {
+            mergedEntries.push(le);
+          }
+        } else {
+          if (le.invoice && le.invoice.startsWith('data:') && !se.invoice) {
+            const idx = mergedEntries.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedEntries[idx] = { ...se, invoice: le.invoice };
+            }
+          }
+          if (le._unsynced) {
+            const idx = mergedEntries.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedEntries[idx] = { ...mergedEntries[idx], ...le };
+            }
           }
         }
       });
@@ -165,22 +256,95 @@ async function loadData() {
       state.users = data.users || [...DEFAULT_USERS];
       if (data.categories) saveCategories(data.categories);
 
+      // Thuật toán gộp thông minh (Smart Merge) cho Advances (Tạm ứng)
+      const serverAdvances = data.advances || [];
+      const localAdvances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
+      const mergedAdvances = [...serverAdvances];
+      localAdvances.forEach(le => {
+        const se = serverAdvances.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) {
+            mergedAdvances.push(le);
+          }
+        } else {
+          if (le.invoice && le.invoice.startsWith('data:') && !se.invoice) {
+            const idx = mergedAdvances.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedAdvances[idx].invoice = le.invoice;
+            }
+          }
+          if (le.settlementInvoice && le.settlementInvoice.startsWith('data:') && !se.settlementInvoice) {
+            const idx = mergedAdvances.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedAdvances[idx].settlementInvoice = le.settlementInvoice;
+            }
+          }
+          if (le._unsynced) {
+            const idx = mergedAdvances.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedAdvances[idx] = { ...mergedAdvances[idx], ...le };
+            }
+          }
+        }
+      });
+      state.advances = mergedAdvances;
+
+      // Thuật toán gộp thông minh (Smart Merge) cho Debts (Công nợ)
+      const serverDebts = data.debts || [];
+      const localDebts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
+      const mergedDebts = [...serverDebts];
+      localDebts.forEach(le => {
+        const se = serverDebts.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) {
+            mergedDebts.push(le);
+          }
+        } else {
+          if (le._unsynced) {
+            const idx = mergedDebts.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedDebts[idx] = { ...mergedDebts[idx], ...le };
+            }
+          }
+        }
+      });
+      state.debts = mergedDebts;
+
+      // Đồng bộ thông minh cho Audit Logs
+      const serverAuditLogs = data.auditLogs || [];
+      const localAuditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
+      const auditLogMap = new Map();
+      serverAuditLogs.forEach(log => {
+        auditLogMap.set(log.timestamp, log);
+      });
+      localAuditLogs.forEach(log => {
+        if (!auditLogMap.has(log.timestamp)) {
+          auditLogMap.set(log.timestamp, log);
+        }
+      });
+      state.auditLogs = Array.from(auditLogMap.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 1000);
+
       localStorage.setItem('tc_users', JSON.stringify(state.users));
       localStorage.setItem('tc_entries', JSON.stringify(state.entries));
+      localStorage.setItem('tc_advances', JSON.stringify(state.advances));
+      localStorage.setItem('tc_debts', JSON.stringify(state.debts));
+      localStorage.setItem('tc_audit_logs', JSON.stringify(state.auditLogs));
     } else {
       state.users = JSON.parse(localStorage.getItem('tc_users') || 'null') || [...DEFAULT_USERS];
       state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
+      state.advances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
+      state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
+      state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
     }
   } catch (err) {
     console.warn("Cloud load failed, using local storage:", err);
     state.users = JSON.parse(localStorage.getItem('tc_users') || 'null') || [...DEFAULT_USERS];
     state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
-  } finally {
-    if (loadingEl) loadingEl.remove();
-    // Load local extensions
     state.advances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
     state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
     state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
+  } finally {
+    if (loadingEl) loadingEl.remove();
     
     // Chuẩn hóa định dạng ngày tháng phòng ngừa múi giờ ISO và tự động sửa chữa dữ liệu lỗi
     if (state.entries) {
@@ -231,7 +395,10 @@ async function loadData() {
             action: 'restoreAll',
             entries: state.entries,
             users: state.users,
-            categories: getCategories()
+            categories: getCategories(),
+            advances: state.advances,
+            debts: state.debts,
+            auditLogs: state.auditLogs
           });
         }
       }
@@ -294,6 +461,23 @@ function hasPermission(perm) {
   return false;
 }
 
+function triggerViewUpdate() {
+  const activeLi = document.querySelector('.sidebar-menu li.active');
+  if (activeLi) {
+    const page = activeLi.dataset.page;
+    if (page === 'dashboard') renderDashboard();
+    if (page === 'journal') updateJournalView();
+    if (page === 'advances') renderAdvances();
+    if (page === 'debts') renderDebts();
+    if (page === 'categories') renderCategoryPage();
+    if (page === 'reports') {
+      if (typeof generateReport === 'function') generateReport();
+    }
+    if (page === 'audit') renderAuditLogs();
+    if (page === 'settings') renderSettings();
+  }
+}
+
 /* ===== INDEXING & AUDIT TRAIL ===== */
 function rebuildIndexes() {
   dbIndex = { byType: { thu: [], chi: [] }, byCategory: {}, byId: {} };
@@ -325,6 +509,8 @@ function writeAuditLog(action, details) {
   if ($('pageAudit') && $('pageAudit').classList.contains('active')) {
     renderAuditLogs();
   }
+  
+  window.sendToCloud({ action: 'saveAuditLog', auditLog: newLog });
 }
 
 function renderAuditLogs() {
@@ -990,7 +1176,7 @@ window.saveEntry = function () {
     const idx = state.entries.findIndex(e => e.id === state.editingId);
     if (idx !== -1) {
       const oldEntry = { ...state.entries[idx] };
-      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice };
+      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice, _unsynced: true };
       entry = state.entries[idx];
       
       // Write detailed audit log with descriptive text and username
@@ -999,7 +1185,7 @@ window.saveEntry = function () {
     toast('Đã cập nhật giao dịch!');
   } else {
     const newStt = getNextSTT();
-    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt };
+    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt, _unsynced: true };
     state.entries.push(entry);
     
     // Write detailed audit log with descriptive text and username
@@ -1144,6 +1330,7 @@ window.updateApprovalStatus = function (entryId, status, keepZoomOpen = false) {
   
   const oldStatus = state.entries[idx].approvalStatus || 'pending';
   state.entries[idx].approvalStatus = status;
+  state.entries[idx]._unsynced = true;
   saveData();
   
   // Sync to cloud if SCRIPT_URL is configured
@@ -1295,6 +1482,7 @@ window.saveAuditStatus = function (entryId) {
   
   state.entries[idx].auditStatus = newStatus;
   state.entries[idx].auditNote = newNote;
+  state.entries[idx]._unsynced = true;
   saveData();
   
   // Ghi nhận lịch sử audit trail chi tiết
@@ -1457,7 +1645,10 @@ $('btnImport').addEventListener('change', function (e) {
         action: 'restoreAll',
         entries: state.entries,
         users: state.users,
-        categories: getCategories()
+        categories: getCategories(),
+        advances: state.advances,
+        debts: state.debts,
+        auditLogs: state.auditLogs
       });
       updateJournalView();
       renderDashboard();
@@ -1874,18 +2065,34 @@ $('btnRestore').addEventListener('change', function (e) {
           const rows = XLSX.utils.sheet_to_json(wb.Sheets['Nhật Ký Chung']);
           state.entries = rows.map(r => {
             const typeRaw = (r['Loại'] || '').toString().toLowerCase();
-            let date = r['Date_raw'] || '';
-            if (!date) {
-              const d = r['Ngày'] || '';
-              if (/^\d{2}\/\d{2}\/\d{4}$/.test(d)) { const [dd, mm, yy] = d.split('/'); date = `${yy}-${mm}-${dd}`; }
-              else date = String(d);
+            const rawDate = r['Date_raw'] || r['Ngày'] || '';
+            let date = '';
+            if (typeof rawDate === 'number') {
+              const d = XLSX.SSF.parse_date_code(rawDate);
+              date = `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}`;
+            } else {
+              date = normalizeDate(rawDate);
             }
+            
+            // Khôi phục trạng thái kiểm soát (auditStatus) từ tiếng Việt
+            let auditStatus = 'pending';
+            const auditRaw = r['Kiểm soát'] || '';
+            if (auditRaw === 'Hợp lệ') auditStatus = 'valid';
+            else if (auditRaw === 'Không hợp lệ') auditStatus = 'invalid';
+            
             return {
-              id: r['ID'] || uid(), type: typeRaw.includes('thu') ? 'thu' : 'chi',
-              date, category: r['Danh mục'] || 'Khác', amount: parseInt(r['Số tiền'] || 0),
-              reason: r['Lý do'] || '', createdBy: r['Người tạo'] || 'imported',
+              id: r['ID'] || uid(),
+              type: typeRaw.includes('thu') ? 'thu' : 'chi',
+              date,
+              category: r['Danh mục'] || 'Khác',
+              amount: parseInt(r['Số tiền'] || 0),
+              reason: r['Lý do'] || '',
+              createdBy: r['Người tạo'] || 'imported',
               createdAt: r['Ngày tạo'] || new Date().toISOString(),
-              approvalStatus: r['Trạng thái duyệt'] || ''
+              approvalStatus: r['Trạng thái duyệt'] === 'Đã duyệt' ? 'approved' : (r['Trạng thái duyệt'] === 'Từ chối' ? 'rejected' : ''),
+              auditStatus,
+              auditNote: r['Ghi chú kiểm soát'] || '',
+              stt: Number(r['STT']) || null
             };
           }).filter(e => e.date && e.amount > 0);
         }
@@ -1914,7 +2121,10 @@ $('btnRestore').addEventListener('change', function (e) {
         action: 'restoreAll',
         entries: state.entries,
         users: state.users,
-        categories: getCategories()
+        categories: getCategories(),
+        advances: state.advances,
+        debts: state.debts,
+        auditLogs: state.auditLogs
       });
       renderDashboard();
       updateJournalView();
@@ -1960,7 +2170,10 @@ $('btnGenDemo').addEventListener('click', () => {
     action: 'restoreAll',
     entries: state.entries,
     users: state.users,
-    categories: getCategories()
+    categories: getCategories(),
+    advances: state.advances,
+    debts: state.debts,
+    auditLogs: state.auditLogs
   });
   renderDashboard();
   updateJournalView();
@@ -2204,11 +2417,13 @@ window.saveAdvanceProposal = function() {
     invoice: null,
     settledAmount: 0,
     settledDate: null,
-    settlementInvoice: null
+    settlementInvoice: null,
+    _unsynced: true
   };
 
   state.advances.push(newAdv);
   saveData();
+  window.sendToCloud({ action: 'saveAdvance', advance: newAdv });
   writeAuditLog('Tạo đề xuất tạm ứng', `Tài khoản ${state.currentUser.username} đề xuất tạm ứng ${fmt(amount)} cho nhân viên ${employee} - Lý do: ${reason}`);
   toast('Đã tạo đề xuất tạm ứng thành công!');
   closeModal();
@@ -2224,6 +2439,7 @@ window.payAdvance = function(id) {
   if (!confirm(`Xác nhận DUYỆT CHI và trả số tiền tạm ứng ${fmt(adv.amount)} cho nhân viên ${adv.employee}?`)) return;
 
   adv.status = 'paid';
+  adv._unsynced = true;
   
   const journalEntry = {
     id: uid(),
@@ -2235,7 +2451,8 @@ window.payAdvance = function(id) {
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
     approvalStatus: 'approved',
-    stt: getNextSTT()
+    stt: getNextSTT(),
+    _unsynced: true
   };
   
   state.entries.push(journalEntry);
@@ -2244,6 +2461,7 @@ window.payAdvance = function(id) {
   
   // Đồng bộ đám mây
   window.sendToCloud({ action: 'saveEntry', entry: journalEntry });
+  window.sendToCloud({ action: 'saveAdvance', advance: adv });
   
   writeAuditLog('Duyệt chi tạm ứng', `Duyệt chi số tiền ${fmt(adv.amount)} cho nhân viên ${adv.employee}`);
   toast(`Đã duyệt chi và ghi sổ quỹ số tiền ${fmt(adv.amount)} thành công!`);
@@ -2296,6 +2514,7 @@ window.showSettlementForm = function(id) {
   }
 
   state.selectedSetInvoice = '';
+  state.selectedSetInvoiceFile = null;
   const settleFile = $('settleInvoiceFile');
   if (settleFile) {
     settleFile.addEventListener('change', function (e) {
@@ -2305,6 +2524,13 @@ window.showSettlementForm = function(id) {
       const reader = new FileReader();
       reader.onload = function(event) {
         state.selectedSetInvoice = event.target.result;
+        const base64Data = event.target.result.split(',')[1];
+        state.selectedSetInvoiceFile = {
+          name: file.name,
+          mimeType: file.type || 'application/octet-stream',
+          base64: base64Data,
+          size: file.size
+        };
         $('settleInvoiceStatus').textContent = file.name;
         const isImage = file.type.startsWith('image/');
         const preview = $('settleInvoicePreview');
@@ -2339,6 +2565,7 @@ window.submitSettlement = function(id) {
   adv.settledAmount = spentAmount;
   adv.settledDate = settleDate;
   adv.settlementInvoice = settlementInvoice;
+  adv._unsynced = true;
 
   // 1. Tự động hạch toán khoản CHI TIÊU THỰC TẾ dựa theo hóa đơn
   const suggestedCategory = suggestCategoryAI(adv.reason, 'chi') || 'Chi khác';
@@ -2353,10 +2580,11 @@ window.submitSettlement = function(id) {
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
     approvalStatus: 'approved',
-    stt: getNextSTT()
+    stt: getNextSTT(),
+    _unsynced: true
   };
   state.entries.push(expenseEntry);
-  window.sendToCloud({ action: 'saveEntry', entry: expenseEntry });
+  window.sendToCloud({ action: 'saveEntry', entry: expenseEntry, fileData: state.selectedSetInvoiceFile });
 
   // 2. Tính toán đối soát chênh lệch thừa/thiếu dòng tiền
   const diff = spentAmount - adv.amount;
@@ -2372,7 +2600,8 @@ window.submitSettlement = function(id) {
       createdBy: state.currentUser.username,
       createdAt: new Date().toISOString(),
       approvalStatus: 'approved',
-      stt: getNextSTT()
+      stt: getNextSTT(),
+      _unsynced: true
     };
     state.entries.push(repayEntry);
     window.sendToCloud({ action: 'saveEntry', entry: repayEntry });
@@ -2389,7 +2618,8 @@ window.submitSettlement = function(id) {
       createdBy: state.currentUser.username,
       createdAt: new Date().toISOString(),
       approvalStatus: 'approved',
-      stt: getNextSTT()
+      stt: getNextSTT(),
+      _unsynced: true
     };
     state.entries.push(refundEntry);
     window.sendToCloud({ action: 'saveEntry', entry: refundEntry });
@@ -2397,6 +2627,7 @@ window.submitSettlement = function(id) {
 
   rebuildIndexes();
   saveData();
+  window.sendToCloud({ action: 'saveAdvance', advance: adv, fileData: state.selectedSetInvoiceFile });
   
   writeAuditLog('Quyết toán tạm ứng', `Nhân viên ${adv.employee} hoàn ứng số tiền thực tế ${fmt(spentAmount)}, chênh lệch ${fmt(diff)}`);
   toast('Đã ghi sổ quyết toán hoàn ứng và đối soát chênh lệch tự động thành công!', 'success');
@@ -2415,6 +2646,7 @@ window.deleteAdvance = function(id) {
 
   state.advances.splice(advIdx, 1);
   saveData();
+  window.sendToCloud({ action: 'deleteAdvance', id });
   
   writeAuditLog('Xóa tạm ứng', `Xóa lịch sử tạm ứng nhân viên ${adv.employee} trị giá ${fmt(adv.amount)}`);
   toast('Đã xóa dữ liệu tạm ứng thành công!');
@@ -2569,11 +2801,13 @@ window.saveNewDebt = function() {
     dueDate,
     reason,
     status: 'unpaid',
-    paymentDate: null
+    paymentDate: null,
+    _unsynced: true
   };
 
   state.debts.push(newDebt);
   saveData();
+  window.sendToCloud({ action: 'saveDebt', debt: newDebt });
   
   const typeLabel = type === 'thu' ? 'phải thu' : 'phải trả';
   writeAuditLog('Ghi công nợ', `Tạo công nợ ${typeLabel} đối tác ${partner} số tiền ${fmt(amount)} - Hạn thanh toán: ${formatDate(dueDate)}`);
@@ -2593,6 +2827,7 @@ window.payDebt = function(id) {
 
   debt.status = 'paid';
   debt.paymentDate = today();
+  debt._unsynced = true;
   
   // Tự động hạch toán Phiếu Thu/Chi đối chiếu công nợ vào Nhật ký chung
   const journalEntry = {
@@ -2605,7 +2840,8 @@ window.payDebt = function(id) {
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
     approvalStatus: 'approved',
-    stt: getNextSTT()
+    stt: getNextSTT(),
+    _unsynced: true
   };
 
   state.entries.push(journalEntry);
@@ -2614,6 +2850,7 @@ window.payDebt = function(id) {
   
   // Đồng bộ đám mây
   window.sendToCloud({ action: 'saveEntry', entry: journalEntry });
+  window.sendToCloud({ action: 'saveDebt', debt });
   
   writeAuditLog('Thanh toán công nợ', `Hạch toán thanh toán đối soát công nợ đối tác ${debt.partner} số tiền ${fmt(debt.amount)}`);
   toast(`Đã hạch toán đối soát công nợ thành công!`, 'success');
@@ -2631,6 +2868,7 @@ window.deleteDebt = function(id) {
 
   state.debts.splice(debtIdx, 1);
   saveData();
+  window.sendToCloud({ action: 'deleteDebt', id });
   
   writeAuditLog('Xóa công nợ', `Xóa công nợ đối tác ${debt.partner} trị giá ${fmt(debt.amount)}`);
   toast('Đã xóa công nợ thành công!');
@@ -2826,7 +3064,8 @@ window.submitNlpEntry = function() {
     invoice: '',
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
-    stt: getNextSTT()
+    stt: getNextSTT(),
+    _unsynced: true
   };
 
   state.entries.push(entry);
@@ -2855,7 +3094,8 @@ window.quickInsertEntry = function(type, category, amount, reason) {
     invoice: '',
     createdBy: state.currentUser.username,
     createdAt: new Date().toISOString(),
-    stt: getNextSTT()
+    stt: getNextSTT(),
+    _unsynced: true
   };
 
   state.entries.push(entry);
@@ -3134,6 +3374,7 @@ function wireUpAdvancedModules() {
     if (!confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử Audit Logs kiểm soát? Hành động này không thể phục hồi.')) return;
     state.auditLogs = [];
     saveData();
+    window.sendToCloud({ action: 'clearAuditLogs' });
     renderAuditLogs();
     toast('Đã xóa sạch nhật ký kiểm toán hệ thống thành công!', 'info');
   });
@@ -3141,10 +3382,25 @@ function wireUpAdvancedModules() {
 
 
 /* ===== INIT ===== */
+async function runPolling() {
+  if (pollingTimeout) {
+    clearTimeout(pollingTimeout);
+  }
+  if (state.currentUser) {
+    await loadData(true);
+    triggerViewUpdate();
+  }
+  const delay = document.visibilityState === 'visible' ? 4000 : 30000;
+  pollingTimeout = setTimeout(runPolling, delay);
+}
+
 (async function () {
   await loadData();
   initLogin();
   initTheme();
   window.populateFilterCategories();
   wireUpAdvancedModules();
+  
+  // Thiết lập tự động đồng bộ hóa thời gian thực (background adaptive polling)
+  runPolling();
 })();
