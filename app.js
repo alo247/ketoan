@@ -425,7 +425,13 @@ function renderDashboard() {
   $('statCount').textContent = s.count;
 
   // Recent
-  const recent = [...state.entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8);
+  const recent = [...state.entries].sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    if (d !== 0) return d;
+    const c = (b.createdAt || '').localeCompare(a.createdAt || '');
+    if (c !== 0) return c;
+    return b.id.localeCompare(a.id);
+  }).slice(0, 8);
   $('recentTable').innerHTML = recent.map(e => `
     <tr>
       <td>${formatDate(e.date)}</td>
@@ -570,7 +576,13 @@ function updateJournalView() {
   if (startDate) list = list.filter(e => e.date >= startDate);
   if (endDate) list = list.filter(e => e.date <= endDate);
   if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
-  list.sort((a, b) => b.date.localeCompare(a.date));
+  list.sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    if (d !== 0) return d;
+    const c = (b.createdAt || '').localeCompare(a.createdAt || '');
+    if (c !== 0) return c;
+    return b.id.localeCompare(a.id);
+  });
 
   const totalPages = Math.ceil(list.length / ITEMS_PER_PAGE) || 1;
   if (journalPage > totalPages) journalPage = totalPages;
@@ -1234,7 +1246,13 @@ $('btnExport').addEventListener('click', () => {
   if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
 
   if (!list.length) { toast('Không có dữ liệu khớp bộ lọc để xuất!', 'error'); return; }
-  const sorted = list.sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = list.sort((a, b) => {
+    const d = a.date.localeCompare(b.date);
+    if (d !== 0) return d;
+    const c = (a.createdAt || '').localeCompare(b.createdAt || '');
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
   const data = sorted.map((e, i) => ({
     'STT': i + 1,
     'Ngày': formatDate(e.date),
@@ -1324,10 +1342,16 @@ $('btnGenReport').addEventListener('click', generateReport);
 function generateReport() {
   const from = $('rptFrom').value;
   const to = $('rptTo').value;
-  let list = state.entries;
+  let list = [...state.entries];
   if (from) list = list.filter(e => e.date >= from);
   if (to) list = list.filter(e => e.date <= to);
-  list.sort((a, b) => a.date.localeCompare(b.date));
+  list.sort((a, b) => {
+    const d = a.date.localeCompare(b.date);
+    if (d !== 0) return d;
+    const c = (a.createdAt || '').localeCompare(b.createdAt || '');
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
 
   const s = calcStats(list);
   $('rptIncome').textContent = fmt(s.income);
@@ -1639,7 +1663,13 @@ $('btnBackup').addEventListener('click', () => {
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Nhật ký chung
-  const sorted = [...state.entries].sort((a, b) => a.date.localeCompare(b.date));
+  const sorted = [...state.entries].sort((a, b) => {
+    const d = a.date.localeCompare(b.date);
+    if (d !== 0) return d;
+    const c = (a.createdAt || '').localeCompare(b.createdAt || '');
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
   const entryData = sorted.map((e, i) => ({
     'STT': i + 1,
     'Ngày': formatDate(e.date),
@@ -1886,7 +1916,13 @@ window.renderAdvances = function() {
   }
 
   // Sắp xếp theo ngày giảm dần
-  list.sort((a, b) => b.date.localeCompare(a.date));
+  list.sort((a, b) => {
+    const d = b.date.localeCompare(a.date);
+    if (d !== 0) return d;
+    const c = (b.createdAt || '').localeCompare(a.createdAt || '');
+    if (c !== 0) return c;
+    return b.id.localeCompare(a.id);
+  });
 
   tbody.innerHTML = list.map((a, i) => {
     let actionButtons = [];
@@ -2260,7 +2296,13 @@ window.renderDebts = function() {
   }
 
   // Sắp xếp hạn thanh toán gần nhất lên đầu
-  list.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  list.sort((a, b) => {
+    const d = a.dueDate.localeCompare(b.dueDate);
+    if (d !== 0) return d;
+    const c = (a.createdAt || '').localeCompare(b.createdAt || '');
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
 
   tbody.innerHTML = list.map((d, i) => {
     let actionButtons = [];
@@ -2856,7 +2898,13 @@ window.generateForecastChart = function() {
   const canvas = $('chartForecast');
   if (!canvas) return;
 
-  const list = [...state.entries].sort((a, b) => a.date.localeCompare(b.date));
+  const list = [...state.entries].sort((a, b) => {
+    const d = a.date.localeCompare(b.date);
+    if (d !== 0) return d;
+    const c = (a.createdAt || '').localeCompare(b.createdAt || '');
+    if (c !== 0) return c;
+    return a.id.localeCompare(b.id);
+  });
   if (list.length < 2) {
     const alertBox = $('forecastAlertBox');
     if (alertBox) {
