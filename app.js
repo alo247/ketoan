@@ -127,6 +127,24 @@ async function loadData() {
     state.advances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
     state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
     state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
+    
+    // Chuẩn hóa định dạng ngày tháng phòng ngừa múi giờ ISO
+    if (state.entries) {
+      state.entries.forEach(e => {
+        if (e.date && e.date.includes('T')) e.date = e.date.split('T')[0];
+      });
+    }
+    if (state.advances) {
+      state.advances.forEach(a => {
+        if (a.date && a.date.includes('T')) a.date = a.date.split('T')[0];
+      });
+    }
+    if (state.debts) {
+      state.debts.forEach(d => {
+        if (d.dueDate && d.dueDate.includes('T')) d.dueDate = d.dueDate.split('T')[0];
+      });
+    }
+
     rebuildIndexes();
   }
 }
@@ -445,7 +463,9 @@ function renderDashboard() {
 }
 
 function formatDate(d) {
-  const parts = d.split('-');
+  if (!d) return '';
+  const dateStr = d.includes('T') ? d.split('T')[0] : d;
+  const parts = dateStr.split('-');
   return parts.length === 3 ? `${parts[2]}/${parts[1]}/${parts[0]}` : d;
 }
 
@@ -1158,7 +1178,8 @@ window.saveAuditStatus = function (entryId) {
   
   // Ghi nhận lịch sử audit trail
   const statusLabels = { pending: 'Chờ kiểm soát', valid: 'Hợp lệ', invalid: 'Không hợp lệ' };
-  const actionDetails = `Kiểm soát giao dịch [Tên đăng nhập: ${state.entries[idx].createdBy || 'không rõ'}]: từ [${statusLabels[oldStatus]}] sang [${statusLabels[newStatus]}]. Ghi chú: "${newNote || 'Không có ghi chú'}"`;
+  const nowStr = new Date().toLocaleString('vi-VN');
+  const actionDetails = `Kiểm soát giao dịch [Tên đăng nhập: ${state.entries[idx].createdBy || 'không rõ'}]: từ [${statusLabels[oldStatus]}] sang [${statusLabels[newStatus]}]. Xác nhận lúc: ${nowStr}. Ghi chú: "${newNote || 'Không có ghi chú'}"`;
   writeAuditLog('Kiểm soát giao dịch', actionDetails);
   
   // Đồng bộ đám mây

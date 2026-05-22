@@ -139,7 +139,14 @@ function getSheetData(sheet) {
       if (header === "amount") {
         obj[header] = Number(val) || 0;
       } else if (val instanceof Date) {
-        obj[header] = val.toISOString();
+        if (header === "date" || header === "dueDate") {
+          var yyyy = val.getFullYear();
+          var mm = String(val.getMonth() + 1).padStart(2, '0');
+          var dd = String(val.getDate()).padStart(2, '0');
+          obj[header] = yyyy + "-" + mm + "-" + dd;
+        } else {
+          obj[header] = val.toISOString();
+        }
       } else {
         obj[header] = val;
       }
