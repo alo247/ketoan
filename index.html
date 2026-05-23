@@ -153,6 +153,11 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- ACCOUNTS & FUNDS BALANCES GRID -->
+                <div class="stats-grid" id="accountsBalanceGrid" style="margin-top:18px; margin-bottom:18px;">
+                    <!-- Dynamically populated in app.js -->
+                </div>
                 <div class="charts-grid">
                     <div class="chart-card">
                         <h4><i class="fas fa-chart-line"></i> Thu Chi Theo Tháng</h4>
@@ -216,6 +221,9 @@
                     </select>
                     <select id="filterCategory" class="filter-select">
                         <option value="all">Tất cả danh mục</option>
+                    </select>
+                    <select id="filterAccount" class="filter-select">
+                        <option value="all">Tất cả tài khoản / quỹ</option>
                     </select>
                 </div>
                 <div class="table-wrapper">
@@ -524,6 +532,20 @@
                         </div>
                         <button class="btn btn-primary" id="btnAddUser" style="margin-top:12px">
                             <i class="fas fa-user-plus"></i> Thêm người dùng
+                        </button>
+                    </div>
+                    <div class="settings-card" id="accountsSettingsCard">
+                        <h4><i class="fas fa-wallet"></i> Quản Lý Tài Khoản & Quỹ</h4>
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr><th>Tên tài khoản / quỹ</th><th>Số dư đầu</th><th>Mô tả</th><th>Thao tác</th></tr>
+                                </thead>
+                                <tbody id="accountsTable"></tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-primary" id="btnAddAccount" style="margin-top:12px">
+                            <i class="fas fa-plus"></i> Thêm tài khoản mới
                         </button>
                     </div>
                     <div class="settings-card">

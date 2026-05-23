@@ -13,7 +13,8 @@ function doGet(e) {
       categories: getCategoriesData(ss.getSheetByName("categories")),
       advances: getSheetData(ss.getSheetByName("advances")),
       debts: getSheetData(ss.getSheetByName("debts")),
-      auditLogs: getSheetData(ss.getSheetByName("auditLogs"))
+      auditLogs: getSheetData(ss.getSheetByName("auditLogs")),
+      accounts: getSheetData(ss.getSheetByName("accounts"))
     };
     
     return ContentService.createTextOutput(JSON.stringify(data))
@@ -50,7 +51,7 @@ function doPost(e) {
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
     } else if (action === "restoreAll") {
-      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs);
+      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts);
     } else if (action === "saveAdvance") {
       result = saveAdvance(ss, payload.advance, payload.fileData);
     } else if (action === "deleteAdvance") {
@@ -63,6 +64,10 @@ function doPost(e) {
       result = saveAuditLog(ss, payload.auditLog);
     } else if (action === "clearAuditLogs") {
       result = clearAuditLogs(ss);
+    } else if (action === "saveAccount") {
+      result = saveAccount(ss, payload.account);
+    } else if (action === "deleteAccount") {
+      result = deleteAccount(ss, payload.name);
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -80,21 +85,21 @@ function doPost(e) {
 // -------------------------------------------------------------
 function initDatabase(ss) {
   var cache = CacheService.getScriptCache();
-  var cached = cache.get("db_initialized_v4"); // Nâng cấp phiên bản db_initialized
+  var cached = cache.get("db_initialized_v5"); // Nâng cấp phiên bản db_initialized
   if (cached === "true") {
     return; // Đã khởi tạo cấu trúc CSDL trực tuyến, bỏ qua để tăng tốc tối đa
   }
 
   // 1. Tạo hoặc kiểm tra sheet 'entries'
   var entriesSheet = ss.getSheetByName("entries");
-  var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt"];
+  var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt", "account", "toAccount"];
   if (!entriesSheet) {
     entriesSheet = ss.insertSheet("entries");
     entriesSheet.appendRow(entriesHeaders);
     // Format hàng tiêu đề
     entriesSheet.getRange(1, 1, 1, entriesHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
   } else {
-    // Tự động nâng cấp cột nếu thiếu cột kiểm soát (auditStatus, auditNote)
+    // Tự động nâng cấp cột nếu thiếu cột
     var currentHeaders = entriesSheet.getRange(1, 1, 1, entriesSheet.getLastColumn()).getValues()[0];
     var updated = false;
     for (var i = 0; i < entriesHeaders.length; i++) {
@@ -170,8 +175,21 @@ function initDatabase(ss) {
     auditSheet.getRange(1, 1, 1, auditHeaders.length).setFontWeight("bold").setBackground("#f3f4f6");
   }
 
+  // 7. Tạo hoặc kiểm tra sheet 'accounts' (Đa quỹ)
+  var accountsSheet = ss.getSheetByName("accounts");
+  var accountsHeaders = ["id", "name", "initialBalance", "desc"];
+  if (!accountsSheet) {
+    accountsSheet = ss.insertSheet("accounts");
+    accountsSheet.appendRow(accountsHeaders);
+    accountsSheet.getRange(1, 1, 1, accountsHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+    // Thêm tài khoản mặc định
+    accountsSheet.appendRow(["cash", "Tiền mặt", 0, "Quỹ tiền mặt tại két"]);
+    accountsSheet.appendRow(["vcb", "Vietcombank", 0, "Tài khoản Vietcombank"]);
+    accountsSheet.appendRow(["mbb", "MB Bank", 0, "Tài khoản MB Bank"]);
+  }
+
   // Lưu trạng thái đã khởi tạo cấu trúc CSDL vào Cache trong 6 giờ (21600 giây)
-  cache.put("db_initialized_v4", "true", 21600);
+  cache.put("db_initialized_v5", "true", 21600);
 }
 
 // -------------------------------------------------------------
@@ -585,7 +603,7 @@ function getOrCreateFolder(folderName) {
 // -------------------------------------------------------------
 // ĐỒNG BỘ TOÀN BỘ CƠ SỞ DỮ LIỆU (RESTORE ALL)
 // -------------------------------------------------------------
-function restoreAll(ss, entries, users, categories, advances, debts, auditLogs) {
+function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, accounts) {
   try {
     // 1. Đồng bộ Entries (Nhật Ký Chung)
     if (entries && Array.isArray(entries)) {
@@ -593,7 +611,7 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs) 
       if (sheet.getLastRow() >= 2) {
         sheet.deleteRows(2, sheet.getLastRow() - 1);
       }
-      var headers = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt"];
+      var headers = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt", "account", "toAccount"];
       
       var rowsToAppend = [];
       for (var i = 0; i < entries.length; i++) {
@@ -733,9 +751,30 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs) 
         auditRows.push(rowValues);
       }
       if (auditRows.length > 0) {
-        // Chỉ lấy tối đa 1000 bản ghi mới nhất để ghi vào sheet
         var slicedRows = auditRows.slice(-1000);
         auditSheet.getRange(2, 1, slicedRows.length, auditHeaders.length).setValues(slicedRows);
+      }
+    }
+
+    // 7. Đồng bộ Accounts (Danh sách tài khoản & quỹ)
+    if (accounts && Array.isArray(accounts)) {
+      var accSheet = ss.getSheetByName("accounts");
+      if (accSheet.getLastRow() >= 2) {
+        accSheet.deleteRows(2, accSheet.getLastRow() - 1);
+      }
+      var accHeaders = ["id", "name", "initialBalance", "desc"];
+      var accRows = [];
+      for (var ac = 0; ac < accounts.length; ac++) {
+        var acc = accounts[ac];
+        accRows.push([
+          acc.id || "",
+          acc.name || "",
+          Number(acc.initialBalance) || 0,
+          acc.desc || ""
+        ]);
+      }
+      if (accRows.length > 0) {
+        accSheet.getRange(2, 1, accRows.length, accHeaders.length).setValues(accRows);
       }
     }
 
@@ -743,4 +782,50 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs) 
   } catch (err) {
     return { success: false, error: err.toString() };
   }
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: TÀI KHOẢN & QUỸ (accounts)
+// -------------------------------------------------------------
+function saveAccount(ss, account) {
+  var sheet = ss.getSheetByName("accounts");
+  var headers = ["id", "name", "initialBalance", "desc"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong accounts!" };
+  
+  var rowValues = [
+    account.id || "",
+    account.name || "",
+    Number(account.initialBalance) || 0,
+    account.desc || ""
+  ];
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === account.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
+}
+
+function deleteAccount(ss, name) {
+  var sheet = ss.getSheetByName("accounts");
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][1] === name) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Tài khoản không tồn tại trên Cloud!" };
 }

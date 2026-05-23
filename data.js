@@ -372,3 +372,26 @@ window.deleteCat = function(type, idx) {
   renderCategoryPage();
   toast('Đã xoá danh mục!');
 };
+
+/* ===== ACCOUNTS & FUNDS MANAGEMENT ===== */
+function getAccounts() {
+  const saved = JSON.parse(localStorage.getItem('tc_accounts') || 'null');
+  if (saved && Array.isArray(saved) && saved.length > 0) return saved;
+  return [
+    { id: 'cash', name: 'Tiền mặt', initialBalance: 0, desc: 'Quỹ tiền mặt tại két' },
+    { id: 'vcb', name: 'Vietcombank', initialBalance: 0, desc: 'Tài khoản ngân hàng Vietcombank' },
+    { id: 'mbb', name: 'MB Bank', initialBalance: 0, desc: 'Tài khoản ngân hàng quân đội MB' }
+  ];
+}
+function saveAccounts(accs) {
+  localStorage.setItem('tc_accounts', JSON.stringify(accs));
+}
+window.getAccounts = getAccounts;
+window.saveAccounts = saveAccounts;
+
+window.getAccountOptionsHtml = function(selected) {
+  const accs = getAccounts();
+  return accs.map(acc => {
+    return `<option value="${acc.name}" ${selected === acc.name ? 'selected' : ''}>${acc.name}</option>`;
+  }).join('');
+};

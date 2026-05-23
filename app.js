@@ -23,6 +23,7 @@ let state = {
   advances: [],
   debts: [],
   auditLogs: [],
+  accounts: [],
   chartMonthly: null,
   chartRatio: null,
   chartReport: null,
@@ -310,6 +311,28 @@ async function loadData(silent = false) {
       });
       state.debts = mergedDebts;
 
+      // Thuật toán gộp thông minh cho Accounts (Tài khoản)
+      const serverAccounts = data.accounts || [];
+      const localAccounts = window.getAccounts ? window.getAccounts() : [];
+      const mergedAccounts = [...serverAccounts];
+      localAccounts.forEach(le => {
+        const se = serverAccounts.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) {
+            mergedAccounts.push(le);
+          }
+        } else {
+          if (le._unsynced) {
+            const idx = mergedAccounts.findIndex(x => x.id === se.id);
+            if (idx !== -1) {
+              mergedAccounts[idx] = { ...mergedAccounts[idx], ...le };
+            }
+          }
+        }
+      });
+      state.accounts = mergedAccounts;
+      if (window.saveAccounts) window.saveAccounts(state.accounts);
+
       // Đồng bộ thông minh cho Audit Logs
       const serverAuditLogs = data.auditLogs || [];
       const localAuditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
@@ -335,6 +358,7 @@ async function loadData(silent = false) {
       state.advances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
       state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
       state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
+      state.accounts = window.getAccounts ? window.getAccounts() : [];
     }
   } catch (err) {
     console.warn("Cloud load failed, using local storage:", err);
@@ -343,6 +367,7 @@ async function loadData(silent = false) {
     state.advances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
     state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
     state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
+    state.accounts = window.getAccounts ? window.getAccounts() : [];
   } finally {
     if (loadingEl) loadingEl.remove();
     
@@ -414,6 +439,7 @@ function saveData() {
   localStorage.setItem('tc_advances', JSON.stringify(state.advances));
   localStorage.setItem('tc_debts', JSON.stringify(state.debts));
   localStorage.setItem('tc_audit_logs', JSON.stringify(state.auditLogs));
+  if (window.saveAccounts) window.saveAccounts(state.accounts);
 }
 
 function toast(msg, type = 'success') {
@@ -716,6 +742,68 @@ $('modalClose').addEventListener('click', closeModal);
 $('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
 
 /* ===== DASHBOARD ===== */
+/* ===== ACCOUNTS & FUNDS BALANCES CALCULATIONS ===== */
+function getAccountBalances() {
+  const accounts = window.getAccounts ? window.getAccounts() : [];
+  const balances = {};
+  accounts.forEach(acc => {
+    balances[acc.name] = Number(acc.initialBalance) || 0;
+  });
+
+  state.entries.forEach(e => {
+    const amt = Number(e.amount) || 0;
+    if (e.type === 'thu') {
+      if (balances[e.account] !== undefined) {
+        balances[e.account] += amt;
+      }
+    } else if (e.type === 'chi') {
+      if (balances[e.account] !== undefined) {
+        balances[e.account] -= amt;
+      }
+    } else if (e.type === 'transfer') {
+      if (balances[e.account] !== undefined) {
+        balances[e.account] -= amt;
+      }
+      if (balances[e.toAccount] !== undefined) {
+        balances[e.toAccount] += amt;
+      }
+    }
+  });
+
+  return balances;
+}
+
+function renderAccountsGrid() {
+  const accounts = window.getAccounts ? window.getAccounts() : [];
+  const balances = getAccountBalances();
+  const grid = $('accountsBalanceGrid');
+  if (!grid) return;
+
+  const gradientClasses = [
+    'linear-gradient(135deg, #1e3c72 0%, #2a5298 100%)',
+    'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+    'linear-gradient(135deg, #8a2387 0%, #e94057 100%, #f27121 100%)',
+    'linear-gradient(135deg, #da22ff 0%, #9114ff 100%)'
+  ];
+
+  grid.innerHTML = accounts.map((acc, idx) => {
+    const currentBalance = balances[acc.name] || 0;
+    const gradient = gradientClasses[idx % gradientClasses.length];
+    const isNegative = currentBalance < 0;
+
+    return `
+      <div class="stat-card" style="background:${gradient};color:#fff;border:none;box-shadow:0 8px 20px rgba(0,0,0,0.15);position:relative;overflow:hidden;padding:18px">
+        <div style="position:absolute;top:-10px;right:-10px;font-size:5rem;opacity:0.07;color:#fff"><i class="fas fa-wallet"></i></div>
+        <div class="stat-info" style="z-index:2">
+          <small style="opacity:0.8;font-size:0.75rem;text-transform:uppercase;letter-spacing:1px;font-weight:600;display:block;margin-bottom:4px">${acc.name}</small>
+          <h3 style="font-size:1.4rem;font-weight:700;margin:0;letter-spacing:-0.5px;color:#fff">${fmt(currentBalance)}</h3>
+          <span style="font-size:0.7rem;opacity:0.75;display:block;margin-top:6px;font-weight:300"><i class="fas fa-info-circle" style="margin-right:3px"></i>${acc.desc || 'Tài khoản quỹ'}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 function calcStats(entries) {
   const income = entries.filter(e => e.type === 'thu').reduce((s, e) => s + e.amount, 0);
   const expense = entries.filter(e => e.type === 'chi').reduce((s, e) => s + e.amount, 0);
@@ -730,6 +818,9 @@ function renderDashboard() {
   $('statProfit').style.color = s.profit >= 0 ? 'var(--green)' : 'var(--red)';
   $('statCount').textContent = s.count;
 
+  // Render accounts balance grid
+  renderAccountsGrid();
+
   // Recent
   const recent = [...state.entries].sort((a, b) => {
     const d = b.date.localeCompare(a.date);
@@ -738,14 +829,29 @@ function renderDashboard() {
     if (c !== 0) return c;
     return b.id.localeCompare(a.id);
   }).slice(0, 8);
-  $('recentTable').innerHTML = recent.map(e => `
-    <tr>
-      <td>${formatDate(e.date)}</td>
-      <td><span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span></td>
-      <td style="color:${e.type === 'thu' ? 'var(--green)' : 'var(--red)'};font-weight:600">${e.type === 'thu' ? '+' : '-'}${fmt(e.amount)}</td>
-      <td>${e.reason}</td>
-    </tr>
-  `).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:30px">Chưa có giao dịch nào</td></tr>';
+  
+  $('recentTable').innerHTML = recent.map(e => {
+    let typeBadge = `<span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span>`;
+    let amountSign = e.type === 'thu' ? '+' : '-';
+    let amountColor = e.type === 'thu' ? 'var(--green)' : 'var(--red)';
+    let reasonText = e.reason;
+
+    if (e.type === 'transfer') {
+      typeBadge = `<span class="badge badge-transfer" style="background:rgba(102,126,234,.2);color:var(--primary)">⇄ Chuyển quỹ</span>`;
+      amountSign = '';
+      amountColor = 'var(--text)';
+      reasonText = `<span style="color:var(--primary);font-weight:500">[${e.account} ➔ ${e.toAccount}]</span> ${e.reason}`;
+    }
+
+    return `
+      <tr>
+        <td>${formatDate(e.date)}</td>
+        <td>${typeBadge}</td>
+        <td style="color:${amountColor};font-weight:600">${amountSign}${fmt(e.amount)}</td>
+        <td>${reasonText}</td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:30px">Chưa có giao dịch nào</td></tr>';
 
   renderCharts();
 }
@@ -869,8 +975,21 @@ function updateJournalView() {
   const search = ($('searchInput')?.value || '').toLowerCase();
   const filter = $('filterType')?.value || 'all';
   const filterCat = $('filterCategory')?.value || 'all';
+  const filterAcc = $('filterAccount')?.value || 'all';
   const startDate = $('filterStartDate')?.value || '';
   const endDate = $('filterEndDate')?.value || '';
+
+  // Populate Accounts dropdown if present
+  const filterAccEl = $('filterAccount');
+  if (filterAccEl) {
+    const currentAccSelection = filterAccEl.value;
+    const accounts = window.getAccounts ? window.getAccounts() : [];
+    let optionsHtml = '<option value="all">Tất cả tài khoản</option>';
+    accounts.forEach(acc => {
+      optionsHtml += `<option value="${acc.name}" ${currentAccSelection === acc.name ? 'selected' : ''}>${acc.name}</option>`;
+    });
+    filterAccEl.innerHTML = optionsHtml;
+  }
 
   // Hiển thị/ẩn nút xóa bộ lọc ngày
   const btnClear = $('btnClearDates');
@@ -881,6 +1000,7 @@ function updateJournalView() {
   let list = [...state.entries];
   if (filter !== 'all') list = list.filter(e => e.type === filter);
   if (filterCat !== 'all') list = list.filter(e => e.category === filterCat);
+  if (filterAcc !== 'all') list = list.filter(e => e.account === filterAcc || e.toAccount === filterAcc);
   if (startDate) list = list.filter(e => e.date >= startDate);
   if (endDate) list = list.filter(e => e.date <= endDate);
   if (search) list = list.filter(e => e.reason.toLowerCase().includes(search) || e.category.toLowerCase().includes(search));
@@ -909,9 +1029,16 @@ function updateJournalView() {
       <tr>
         <td>${e.stt || '-'}</td>
         <td>${formatDate(e.date)}</td>
-        <td><span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span></td>
+        <td>
+          ${e.type === 'transfer'
+            ? `<span class="badge badge-transfer" style="background:rgba(102,126,234,.2);color:var(--primary)">⇄ Chuyển</span><span style="font-size:0.75rem;color:var(--text2);display:block;margin-top:2px;font-weight:500">${e.account || '-'} ➔ ${e.toAccount || '-'}</span>`
+            : `<span class="badge badge-${e.type}">${e.type === 'thu' ? '▲ Thu' : '▼ Chi'}</span><span style="font-size:0.72rem;color:var(--text2);display:block;margin-top:2px;opacity:0.8"><i class="fas fa-wallet" style="margin-right:2px;font-size:0.65rem;opacity:0.6"></i>${e.account || 'Tiền mặt'}</span>`
+          }
+        </td>
         <td>${e.category}</td>
-        <td style="color:${e.type === 'thu' ? 'var(--green)' : 'var(--red)'};font-weight:600">${e.type === 'thu' ? '+' : '-'}${fmt(e.amount)}</td>
+        <td style="color:${e.type === 'transfer' ? 'var(--text)' : (e.type === 'thu' ? 'var(--green)' : 'var(--red)')};font-weight:600">
+          ${e.type === 'transfer' ? '' : (e.type === 'thu' ? '+' : '-')}${fmt(e.amount)}
+        </td>
         <td>${e.reason}</td>
         <td style="text-align:center; vertical-align: middle;">
           ${e.invoice ? `
@@ -1002,6 +1129,10 @@ $('filterCategory')?.addEventListener('change', () => {
   journalPage = 1;
   updateJournalView();
 });
+$('filterAccount')?.addEventListener('change', () => {
+  journalPage = 1;
+  updateJournalView();
+});
 $('filterStartDate')?.addEventListener('change', () => {
   journalPage = 1;
   updateJournalView();
@@ -1028,15 +1159,24 @@ function showEntryForm(entry) {
       <select id="fType" onchange="updateCatOptions()">
         <option value="thu" ${entry && entry.type === 'thu' ? 'selected' : ''}>Thu (nhận tiền vào)</option>
         <option value="chi" ${entry && entry.type === 'chi' ? 'selected' : ''}>Chi (tiền ra)</option>
+        <option value="transfer" ${entry && entry.type === 'transfer' ? 'selected' : ''}>⇄ Chuyển quỹ nội bộ</option>
       </select>
     </div>
     <div class="form-group">
       <label>Ngày</label>
       <input type="date" id="fDate" value="${entry ? entry.date : today()}">
     </div>
-    <div class="form-group">
+    <div class="form-group" id="fCatGroup">
       <label>Danh mục</label>
       <select id="fCat">${window.getCatOptionsHtml(entry ? entry.type : 'thu', entry ? entry.category : '')}</select>
+    </div>
+    <div class="form-group" id="fAccountGroup">
+      <label>Tài khoản / Quỹ</label>
+      <select id="fAccount">${window.getAccountOptionsHtml(entry ? entry.account : '')}</select>
+    </div>
+    <div class="form-group" id="fToAccountGroup" style="display:none">
+      <label>Đến tài khoản / Quỹ nhận</label>
+      <select id="fToAccount">${window.getAccountOptionsHtml(entry ? entry.toAccount : '')}</select>
     </div>
     <div class="form-group">
       <label>Số tiền (₫)</label>
@@ -1087,6 +1227,7 @@ function showEntryForm(entry) {
   state.selectedInvoice = entry ? (entry.invoice || '') : '';
   state.selectedInvoiceFile = null;
   openModal(isEdit ? 'Sửa giao dịch' : 'Thêm giao dịch mới', html);
+  updateCatOptions();
 
   const fAmt = $('fAmount');
   if (fAmt) {
@@ -1139,7 +1280,28 @@ function showEntryForm(entry) {
 
 window.updateCatOptions = function () {
   const type = $('fType').value;
-  $('fCat').innerHTML = window.getCatOptionsHtml(type);
+  const catGroup = $('fCatGroup');
+  const accGroup = $('fAccountGroup');
+  const toAccGroup = $('fToAccountGroup');
+  
+  if (type === 'transfer') {
+    if (catGroup) catGroup.style.display = 'none';
+    if (accGroup) {
+      accGroup.querySelector('label').textContent = 'Từ tài khoản / Quỹ chuyển';
+      accGroup.style.display = 'block';
+    }
+    if (toAccGroup) toAccGroup.style.display = 'block';
+  } else {
+    if (catGroup) catGroup.style.display = 'block';
+    if (accGroup) {
+      accGroup.querySelector('label').textContent = 'Tài khoản / Quỹ';
+      accGroup.style.display = 'block';
+    }
+    if (toAccGroup) toAccGroup.style.display = 'none';
+    
+    const entry = state.editingId ? state.entries.find(e => e.id === state.editingId) : null;
+    $('fCat').innerHTML = window.getCatOptionsHtml(type, entry ? entry.category : '');
+  }
 };
 
 $('btnAddEntry').addEventListener('click', () => {
@@ -1165,10 +1327,14 @@ window.saveEntry = function () {
   const type = $('fType').value;
   const rawDate = $('fDate').value;
   const date = normalizeDate(rawDate);
-  const category = $('fCat').value;
+  const account = $('fAccount').value;
+  const toAccount = type === 'transfer' ? $('fToAccount').value : '';
+  const category = type === 'transfer' ? 'Chuyển quỹ nội bộ' : $('fCat').value;
   const amount = parseInt($('fAmount').value.replace(/\D/g, '')) || 0;
   const reason = $('fReason').value.trim();
+
   if (!date || !amount || amount <= 0 || !reason) { toast('Vui lòng điền đầy đủ thông tin!', 'error'); return; }
+  if (type === 'transfer' && account === toAccount) { toast('Tài khoản chuyển và tài khoản nhận phải khác nhau!', 'error'); return; }
 
   const invoice = state.selectedInvoice || '';
   let entry;
@@ -1176,20 +1342,20 @@ window.saveEntry = function () {
     const idx = state.entries.findIndex(e => e.id === state.editingId);
     if (idx !== -1) {
       const oldEntry = { ...state.entries[idx] };
-      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice, _unsynced: true };
+      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice, account, toAccount, _unsynced: true };
       entry = state.entries[idx];
       
-      // Write detailed audit log with descriptive text and username
-      writeAuditLog('Sửa giao dịch', `Tài khoản ${state.currentUser.username} sửa chứng từ STT ${entry.stt || '-'} (Trước: ${oldEntry.type === 'thu' ? 'Thu' : 'Chi'}, ${fmt(oldEntry.amount)}, lý do: ${oldEntry.reason} -> Sau: ${type === 'thu' ? 'Thu' : 'Chi'}, ${fmt(amount)}, lý do: ${reason})`);
+      let auditDetail = `Tài khoản ${state.currentUser.username} sửa chứng từ STT ${entry.stt || '-'} (Trước: ${oldEntry.type === 'thu' ? 'Thu' : (oldEntry.type === 'chi' ? 'Chi' : 'Chuyển quỹ')}, ${fmt(oldEntry.amount)}, lý do: ${oldEntry.reason} -> Sau: ${type === 'thu' ? 'Thu' : (type === 'chi' ? 'Chi' : 'Chuyển quỹ')}, ${fmt(amount)}, lý do: ${reason})`;
+      writeAuditLog('Sửa giao dịch', auditDetail);
     }
     toast('Đã cập nhật giao dịch!');
   } else {
     const newStt = getNextSTT();
-    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt, _unsynced: true };
+    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt, account, toAccount, _unsynced: true };
     state.entries.push(entry);
     
-    // Write detailed audit log with descriptive text and username
-    writeAuditLog('Thêm giao dịch', `Tài khoản ${state.currentUser.username} thêm chứng từ mới STT ${newStt} (${type === 'thu' ? 'Thu' : 'Chi'}, số tiền: ${fmt(amount)}, lý do: ${reason})`);
+    let auditDetail = `Tài khoản ${state.currentUser.username} thêm chứng từ mới STT ${newStt} (${type === 'thu' ? 'Thu' : (type === 'chi' ? 'Chi' : 'Chuyển quỹ')}, số tiền: ${fmt(amount)}, lý do: ${reason})`;
+    writeAuditLog('Thêm giao dịch', auditDetail);
     
     toast('Đã thêm giao dịch mới!');
   }
@@ -1815,7 +1981,192 @@ function renderSettings() {
       </tr>
     `;
   }).join('');
+  renderAccountsSettings();
 }
+
+/* ===== ACCOUNTS SETTINGS & CRUD FUNCTIONS ===== */
+function renderAccountsSettings() {
+  if (!hasPermission('users')) return;
+  const tbody = $('accountsTable');
+  if (!tbody) return;
+  const accounts = window.getAccounts ? window.getAccounts() : [];
+  
+  tbody.innerHTML = accounts.map((acc, i) => {
+    return `
+      <tr>
+        <td><strong>${acc.name}</strong></td>
+        <td style="color:var(--green);font-weight:600">${fmt(acc.initialBalance || 0)}</td>
+        <td><span style="color:var(--text2);font-size:0.85rem">${acc.desc || '-'}</span></td>
+        <td>
+          <button class="btn btn-primary btn-sm" onclick="showEditAccountForm('${acc.id}')" title="Sửa tài khoản"><i class="fas fa-edit"></i></button>
+          ${acc.id !== 'cash' ? `<button class="btn btn-danger btn-sm" onclick="deleteAccount('${acc.id}')" title="Xóa tài khoản"><i class="fas fa-trash-alt"></i></button>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Chưa có tài khoản</td></tr>';
+}
+
+window.showAddAccountForm = function() {
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  openModal('Thêm tài khoản / quỹ mới', `
+    <div class="form-group">
+      <label>Tên tài khoản / quỹ</label>
+      <input type="text" id="fAccName" placeholder="Ví dụ: Vietcombank, Quỹ phụ...">
+    </div>
+    <div class="form-group">
+      <label>Số dư đầu kỳ (₫)</label>
+      <input type="text" id="fAccBalance" placeholder="Nhập số dư đầu kỳ">
+    </div>
+    <div class="form-group">
+      <label>Mô tả / Ghi chú</label>
+      <input type="text" id="fAccDesc" placeholder="Mô tả tài khoản...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="saveNewAccount()">Thêm tài khoản</button>
+    </div>
+  `);
+  
+  const fAmt = $('fAccBalance');
+  if (fAmt) {
+    fAmt.addEventListener('input', function () {
+      const clean = this.value.replace(/\D/g, '');
+      this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+    });
+  }
+};
+
+window.saveNewAccount = function() {
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  const name = $('fAccName').value.trim();
+  const balance = parseInt($('fAccBalance').value.replace(/\D/g, '')) || 0;
+  const desc = $('fAccDesc').value.trim();
+  
+  if (!name) return toast('Vui lòng điền tên tài khoản!', 'error');
+  
+  if (state.accounts.some(acc => acc.name.toLowerCase() === name.toLowerCase())) {
+    return toast('Tên tài khoản đã tồn tại!', 'error');
+  }
+  
+  const acc = {
+    id: 'acc_' + Date.now().toString(36),
+    name,
+    initialBalance: balance,
+    desc,
+    _unsynced: true
+  };
+  
+  state.accounts.push(acc);
+  saveData();
+  window.sendToCloud({ action: 'saveAccount', account: acc });
+  
+  writeAuditLog('Thêm tài khoản', `Tài khoản ${state.currentUser.username} thêm tài khoản/quỹ mới: ${name} (Số dư đầu: ${fmt(balance)})`);
+  
+  closeModal();
+  renderSettings();
+  renderDashboard();
+  toast('Đã thêm tài khoản mới!');
+};
+
+window.showEditAccountForm = function(id) {
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  const acc = state.accounts.find(x => x.id === id);
+  if (!acc) return;
+  
+  openModal('Sửa tài khoản / quỹ', `
+    <div class="form-group">
+      <label>Tên tài khoản / quỹ</label>
+      <input type="text" id="fAccName" value="${acc.name}">
+    </div>
+    <div class="form-group">
+      <label>Số dư đầu kỳ (₫)</label>
+      <input type="text" id="fAccBalance" value="${formatThousand(acc.initialBalance || 0)}">
+    </div>
+    <div class="form-group">
+      <label>Mô tả / Ghi chú</label>
+      <input type="text" id="fAccDesc" value="${acc.desc || ''}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="updateAccount('${id}')">Cập nhật</button>
+    </div>
+  `);
+  
+  const fAmt = $('fAccBalance');
+  if (fAmt) {
+    fAmt.addEventListener('input', function () {
+      const clean = this.value.replace(/\D/g, '');
+      this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+    });
+  }
+};
+
+window.updateAccount = function(id) {
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  const acc = state.accounts.find(x => x.id === id);
+  if (!acc) return;
+  
+  const name = $('fAccName').value.trim();
+  const balance = parseInt($('fAccBalance').value.replace(/\D/g, '')) || 0;
+  const desc = $('fAccDesc').value.trim();
+  
+  if (!name) return toast('Tên tài khoản không được để trống!', 'error');
+  
+  if (state.accounts.some(x => x.id !== id && x.name.toLowerCase() === name.toLowerCase())) {
+    return toast('Tên tài khoản đã tồn tại ở tài khoản khác!', 'error');
+  }
+  
+  const oldName = acc.name;
+  acc.name = name;
+  acc.initialBalance = balance;
+  acc.desc = desc;
+  acc._unsynced = true;
+  
+  state.entries.forEach(e => {
+    if (e.account === oldName) e.account = name;
+    if (e.toAccount === oldName) e.toAccount = name;
+  });
+  
+  saveData();
+  window.sendToCloud({ action: 'saveAccount', account: acc });
+  
+  writeAuditLog('Sửa tài khoản', `Tài khoản ${state.currentUser.username} sửa tài khoản/quỹ: ${oldName} -> ${name}`);
+  
+  closeModal();
+  renderSettings();
+  renderDashboard();
+  updateJournalView();
+  toast('Đã cập nhật tài khoản!');
+};
+
+window.deleteAccount = function(id) {
+  if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
+  const idx = state.accounts.findIndex(x => x.id === id);
+  if (idx === -1) return;
+  const acc = state.accounts[idx];
+  
+  if (acc.id === 'cash') {
+    return toast('Không thể xóa tài khoản tiền mặt mặc định!', 'error');
+  }
+  
+  if (!confirm(`Bạn có chắc chắn muốn xóa tài khoản "${acc.name}"? Các giao dịch liên quan sẽ tự động chuyển về tài khoản "Tiền mặt".`)) return;
+  
+  const name = acc.name;
+  
+  state.entries.forEach(e => {
+    if (e.account === name) e.account = 'Tiền mặt';
+    if (e.toAccount === name) e.toAccount = 'Tiền mặt';
+  });
+  
+  state.accounts.splice(idx, 1);
+  saveData();
+  window.sendToCloud({ action: 'deleteAccount', name: name });
+  
+  writeAuditLog('Xóa tài khoản', `Tài khoản ${state.currentUser.username} xóa tài khoản/quỹ: ${name}`);
+  
+  renderSettings();
+  renderDashboard();
+  updateJournalView();
+  toast('Đã xóa tài khoản!');
+};
 
 window.editUserPermissions = function (username) {
   const u = state.users.find(x => x.username === username);
@@ -1927,6 +2278,10 @@ window.saveUserPermissions = function (username) {
   renderSettings();
   toast(`Đã cập nhật phân quyền cho tài khoản ${username}!`);
 };
+
+$('btnAddAccount')?.addEventListener('click', () => {
+  showAddAccountForm();
+});
 
 $('btnAddUser').addEventListener('click', () => {
   if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
