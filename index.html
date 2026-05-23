@@ -106,7 +106,21 @@
                 <button class="btn-toggle-sidebar" id="btnToggleSidebar">
                     <i class="fas fa-bars"></i>
                 </button>
-                <h2 id="pageTitle">Tổng quan</h2>
+                <div style="display:flex;align-items:center;gap:16px;flex:1;flex-wrap:wrap">
+                    <h2 id="pageTitle" style="margin:0;flex:none">Tổng quan</h2>
+                    <div id="settingsHeaderActions" class="hidden" style="display:none;gap:10px;align-items:center;flex-wrap:wrap">
+                        <button class="btn btn-success btn-sm" id="btnBackup">
+                            <i class="fas fa-download"></i> Sao lưu
+                        </button>
+                        <label class="btn btn-info btn-sm" style="margin-bottom:0;cursor:pointer">
+                            <i class="fas fa-upload"></i> Khôi phục
+                            <input type="file" id="btnRestore" accept=".json,.xlsx,.xls" hidden>
+                        </label>
+                        <button class="btn btn-danger btn-sm" id="btnClearData">
+                            <i class="fas fa-trash"></i> Xoá tất cả dữ liệu
+                        </button>
+                    </div>
+                </div>
                 <div class="top-bar-actions" style="display:flex;align-items:center;gap:4px">
                     <div class="color-scheme-picker" id="colorSchemePicker" title="Chọn tông màu chủ đạo">
                         <button class="dot-btn active" data-scheme="indigo" title="Indigo & Sky"></button>
@@ -547,21 +561,6 @@
                         <button class="btn btn-primary" id="btnAddAccount" style="margin-top:12px">
                             <i class="fas fa-plus"></i> Thêm tài khoản mới
                         </button>
-                    </div>
-                    <div class="settings-card">
-                        <h4><i class="fas fa-database"></i> Dữ Liệu</h4>
-                        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
-                            <button class="btn btn-success" id="btnBackup">
-                                <i class="fas fa-download"></i> Sao lưu
-                            </button>
-                            <label class="btn btn-info" style="margin-bottom:0;cursor:pointer">
-                                <i class="fas fa-upload"></i> Khôi phục
-                                <input type="file" id="btnRestore" accept=".json,.xlsx,.xls" hidden>
-                            </label>
-                            <button class="btn btn-danger" id="btnClearData">
-                                <i class="fas fa-trash"></i> Xoá tất cả dữ liệu
-                            </button>
-                        </div>
                     </div>
                 </div>
             </section>

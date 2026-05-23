@@ -684,6 +684,17 @@ document.querySelectorAll('.sidebar-menu li').forEach(li => {
     $('page' + page.charAt(0).toUpperCase() + page.slice(1)).classList.add('active');
     $('pageTitle').textContent = pageTitles[page] || '';
     
+    const settingsActions = $('settingsHeaderActions');
+    if (settingsActions) {
+      if (page === 'settings') {
+        settingsActions.classList.remove('hidden');
+        settingsActions.style.display = 'flex';
+      } else {
+        settingsActions.classList.add('hidden');
+        settingsActions.style.display = 'none';
+      }
+    }
+    
     if (page === 'dashboard') renderDashboard();
     if (page === 'journal') updateJournalView();
     if (page === 'advances') renderAdvances();
