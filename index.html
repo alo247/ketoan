@@ -550,22 +550,16 @@
                     </div>
                     <div class="settings-card">
                         <h4><i class="fas fa-database"></i> Dữ Liệu</h4>
-                        <p>Sao lưu hoặc khôi phục toàn bộ dữ liệu dưới dạng JSON.</p>
                         <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap">
                             <button class="btn btn-success" id="btnBackup">
                                 <i class="fas fa-download"></i> Sao lưu
                             </button>
-                            <label class="btn btn-info">
+                            <label class="btn btn-info" style="margin-bottom:0;cursor:pointer">
                                 <i class="fas fa-upload"></i> Khôi phục
                                 <input type="file" id="btnRestore" accept=".json,.xlsx,.xls" hidden>
                             </label>
                             <button class="btn btn-danger" id="btnClearData">
                                 <i class="fas fa-trash"></i> Xoá tất cả dữ liệu
-                            </button>
-                        </div>
-                        <div style="margin-top:16px">
-                            <button class="btn btn-primary" id="btnGenDemo">
-                                <i class="fas fa-magic"></i> Tạo 1000 mẫu demo
                             </button>
                         </div>
                     </div>

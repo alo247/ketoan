@@ -2515,7 +2515,7 @@ $('btnClearJournal').addEventListener('click', () => {
 });
 
 /* ===== GENERATE 1000 DEMO ===== */
-$('btnGenDemo').addEventListener('click', () => {
+$('btnGenDemo')?.addEventListener('click', () => {
   if (!hasPermission('users')) return toast('Bạn không có quyền!', 'error');
   if (!confirm('Tạo 1000 mẫu dữ liệu demo? Dữ liệu hiện tại sẽ được giữ nguyên.')) return;
   const demos = generateDemoEntries(1000);
