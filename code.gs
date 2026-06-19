@@ -14,7 +14,11 @@ function doGet(e) {
       advances: getSheetData(ss.getSheetByName("advances")),
       debts: getSheetData(ss.getSheetByName("debts")),
       auditLogs: getSheetData(ss.getSheetByName("auditLogs")),
-      accounts: getSheetData(ss.getSheetByName("accounts"))
+      accounts: getSheetData(ss.getSheetByName("accounts")),
+      fleetVehicles: getSheetData(ss.getSheetByName("fleetVehicles")),
+      fleetDrivers: getSheetData(ss.getSheetByName("fleetDrivers")),
+      fleetRoutes: getSheetData(ss.getSheetByName("fleetRoutes")),
+      fleetTrips: getSheetData(ss.getSheetByName("fleetTrips"))
     };
     
     return ContentService.createTextOutput(JSON.stringify(data))
@@ -51,7 +55,7 @@ function doPost(e) {
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
     } else if (action === "restoreAll") {
-      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts);
+      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts, payload.fleetVehicles, payload.fleetDrivers, payload.fleetRoutes, payload.fleetTrips);
     } else if (action === "saveAdvance") {
       result = saveAdvance(ss, payload.advance, payload.fileData);
     } else if (action === "deleteAdvance") {
@@ -68,6 +72,22 @@ function doPost(e) {
       result = saveAccount(ss, payload.account);
     } else if (action === "deleteAccount") {
       result = deleteAccount(ss, payload.name);
+    } else if (action === "saveFleetVehicle") {
+      result = saveFleetVehicle(ss, payload.vehicle);
+    } else if (action === "deleteFleetVehicle") {
+      result = deleteFleetVehicle(ss, payload.id);
+    } else if (action === "saveFleetDriver") {
+      result = saveFleetDriver(ss, payload.driver);
+    } else if (action === "deleteFleetDriver") {
+      result = deleteFleetDriver(ss, payload.id);
+    } else if (action === "saveFleetRoute") {
+      result = saveFleetRoute(ss, payload.route);
+    } else if (action === "deleteFleetRoute") {
+      result = deleteFleetRoute(ss, payload.id);
+    } else if (action === "saveFleetTrip") {
+      result = saveFleetTrip(ss, payload.trip, payload.fileData);
+    } else if (action === "deleteFleetTrip") {
+      result = deleteFleetTrip(ss, payload.id);
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -188,8 +208,44 @@ function initDatabase(ss) {
     accountsSheet.appendRow(["mbb", "MB Bank", 0, "Tài khoản MB Bank"]);
   }
 
+  // 8. Tạo hoặc kiểm tra sheet 'fleetVehicles' (Danh sách xe)
+  var fVehiclesSheet = ss.getSheetByName("fleetVehicles");
+  var fVehiclesHeaders = ["id", "plate", "model", "fuelNorm", "status", "notes"];
+  if (!fVehiclesSheet) {
+    fVehiclesSheet = ss.insertSheet("fleetVehicles");
+    fVehiclesSheet.appendRow(fVehiclesHeaders);
+    fVehiclesSheet.getRange(1, 1, 1, fVehiclesHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+  }
+
+  // 9. Tạo hoặc kiểm tra sheet 'fleetDrivers' (Danh sách lái xe)
+  var fDriversSheet = ss.getSheetByName("fleetDrivers");
+  var fDriversHeaders = ["id", "name", "phone", "baseSalary", "notes"];
+  if (!fDriversSheet) {
+    fDriversSheet = ss.insertSheet("fleetDrivers");
+    fDriversSheet.appendRow(fDriversHeaders);
+    fDriversSheet.getRange(1, 1, 1, fDriversHeaders.length).setFontWeight("bold").setBackground("#fce5cd");
+  }
+
+  // 10. Tạo hoặc kiểm tra sheet 'fleetRoutes' (Cung đường)
+  var fRoutesSheet = ss.getSheetByName("fleetRoutes");
+  var fRoutesHeaders = ["id", "name", "startPoint", "endPoint", "distance", "fuelNorm"];
+  if (!fRoutesSheet) {
+    fRoutesSheet = ss.insertSheet("fleetRoutes");
+    fRoutesSheet.appendRow(fRoutesHeaders);
+    fRoutesSheet.getRange(1, 1, 1, fRoutesHeaders.length).setFontWeight("bold").setBackground("#c9daf8");
+  }
+
+  // 11. Tạo hoặc kiểm tra sheet 'fleetTrips' (Chuyến đi & Nhiên liệu)
+  var fTripsSheet = ss.getSheetByName("fleetTrips");
+  var fTripsHeaders = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice"];
+  if (!fTripsSheet) {
+    fTripsSheet = ss.insertSheet("fleetTrips");
+    fTripsSheet.appendRow(fTripsHeaders);
+    fTripsSheet.getRange(1, 1, 1, fTripsHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+  }
+
   // Lưu trạng thái đã khởi tạo cấu trúc CSDL vào Cache trong 6 giờ (21600 giây)
-  cache.put("db_initialized_v5", "true", 21600);
+  cache.put("db_initialized_v6", "true", 21600);
 }
 
 // -------------------------------------------------------------
@@ -778,6 +834,106 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
       }
     }
 
+    // 8. Đồng bộ Fleet Vehicles
+    if (fleetVehicles && Array.isArray(fleetVehicles)) {
+      var fVehSheet = ss.getSheetByName("fleetVehicles");
+      if (fVehSheet.getLastRow() >= 2) {
+        fVehSheet.deleteRows(2, fVehSheet.getLastRow() - 1);
+      }
+      var fVehHeaders = ["id", "plate", "model", "fuelNorm", "status", "notes"];
+      var fVehRows = [];
+      for (var fv = 0; fv < fleetVehicles.length; fv++) {
+        var v = fleetVehicles[fv];
+        fVehRows.push([
+          v.id || "",
+          v.plate || "",
+          v.model || "",
+          Number(v.fuelNorm) || 0,
+          v.status || "Hoạt động",
+          v.notes || ""
+        ]);
+      }
+      if (fVehRows.length > 0) {
+        fVehSheet.getRange(2, 1, fVehRows.length, fVehHeaders.length).setValues(fVehRows);
+      }
+    }
+
+    // 9. Đồng bộ Fleet Drivers
+    if (fleetDrivers && Array.isArray(fleetDrivers)) {
+      var fDrvSheet = ss.getSheetByName("fleetDrivers");
+      if (fDrvSheet.getLastRow() >= 2) {
+        fDrvSheet.deleteRows(2, fDrvSheet.getLastRow() - 1);
+      }
+      var fDrvHeaders = ["id", "name", "phone", "baseSalary", "notes"];
+      var fDrvRows = [];
+      for (var fd = 0; fd < fleetDrivers.length; fd++) {
+        var d = fleetDrivers[fd];
+        fDrvRows.push([
+          d.id || "",
+          d.name || "",
+          d.phone || "",
+          Number(d.baseSalary) || 0,
+          d.notes || ""
+        ]);
+      }
+      if (fDrvRows.length > 0) {
+        fDrvSheet.getRange(2, 1, fDrvRows.length, fDrvHeaders.length).setValues(fDrvRows);
+      }
+    }
+
+    // 10. Đồng bộ Fleet Routes
+    if (fleetRoutes && Array.isArray(fleetRoutes)) {
+      var fRotSheet = ss.getSheetByName("fleetRoutes");
+      if (fRotSheet.getLastRow() >= 2) {
+        fRotSheet.deleteRows(2, fRotSheet.getLastRow() - 1);
+      }
+      var fRotHeaders = ["id", "name", "startPoint", "endPoint", "distance", "fuelNorm"];
+      var fRotRows = [];
+      for (var fr = 0; fr < fleetRoutes.length; fr++) {
+        var r = fleetRoutes[fr];
+        fRotRows.push([
+          r.id || "",
+          r.name || "",
+          r.startPoint || "",
+          r.endPoint || "",
+          Number(r.distance) || 0,
+          Number(r.fuelNorm) || 0
+        ]);
+      }
+      if (fRotRows.length > 0) {
+        fRotSheet.getRange(2, 1, fRotRows.length, fRotHeaders.length).setValues(fRotRows);
+      }
+    }
+
+    // 11. Đồng bộ Fleet Trips
+    if (fleetTrips && Array.isArray(fleetTrips)) {
+      var fTrpSheet = ss.getSheetByName("fleetTrips");
+      if (fTrpSheet.getLastRow() >= 2) {
+        fTrpSheet.deleteRows(2, fTrpSheet.getLastRow() - 1);
+      }
+      var fTrpHeaders = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice"];
+      var fTrpRows = [];
+      for (var ft = 0; ft < fleetTrips.length; ft++) {
+        var t = fleetTrips[ft];
+        var rowValues = [];
+        for (var c = 0; c < fTrpHeaders.length; c++) {
+          var header = fTrpHeaders[c];
+          var val = t[header];
+          if (val === undefined || val === null) {
+            rowValues.push("");
+          } else if (["kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub"].includes(header)) {
+            rowValues.push(Number(val) || 0);
+          } else {
+            rowValues.push(val);
+          }
+        }
+        fTrpRows.push(rowValues);
+      }
+      if (fTrpRows.length > 0) {
+        fTrpSheet.getRange(2, 1, fTrpRows.length, fTrpHeaders.length).setValues(fTrpRows);
+      }
+    }
+
     return { success: true };
   } catch (err) {
     return { success: false, error: err.toString() };
@@ -828,4 +984,217 @@ function deleteAccount(ss, name) {
     }
   }
   return { success: false, error: "Tài khoản không tồn tại trên Cloud!" };
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: QUẢN LÝ ĐỘI XE (fleetVehicles)
+// -------------------------------------------------------------
+function saveFleetVehicle(ss, vehicle) {
+  var sheet = ss.getSheetByName("fleetVehicles");
+  var headers = ["id", "plate", "model", "fuelNorm", "status", "notes"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong fleetVehicles!" };
+  
+  var rowValues = [
+    vehicle.id || "",
+    vehicle.plate || "",
+    vehicle.model || "",
+    Number(vehicle.fuelNorm) || 0,
+    vehicle.status || "Hoạt động",
+    vehicle.notes || ""
+  ];
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === vehicle.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
+}
+
+function deleteFleetVehicle(ss, id) {
+  var sheet = ss.getSheetByName("fleetVehicles");
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === id) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Xe không tồn tại trên Cloud!" };
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: QUẢN LÝ LÁI XE (fleetDrivers)
+// -------------------------------------------------------------
+function saveFleetDriver(ss, driver) {
+  var sheet = ss.getSheetByName("fleetDrivers");
+  var headers = ["id", "name", "phone", "baseSalary", "notes"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong fleetDrivers!" };
+  
+  var rowValues = [
+    driver.id || "",
+    driver.name || "",
+    driver.phone || "",
+    Number(driver.baseSalary) || 0,
+    driver.notes || ""
+  ];
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === driver.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
+}
+
+function deleteFleetDriver(ss, id) {
+  var sheet = ss.getSheetByName("fleetDrivers");
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === id) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Lái xe không tồn tại trên Cloud!" };
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: TUYẾN ĐƯỜNG (fleetRoutes)
+// -------------------------------------------------------------
+function saveFleetRoute(ss, route) {
+  var sheet = ss.getSheetByName("fleetRoutes");
+  var headers = ["id", "name", "startPoint", "endPoint", "distance", "fuelNorm"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong fleetRoutes!" };
+  
+  var rowValues = [
+    route.id || "",
+    route.name || "",
+    route.startPoint || "",
+    route.endPoint || "",
+    Number(route.distance) || 0,
+    Number(route.fuelNorm) || 0
+  ];
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === route.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
+}
+
+function deleteFleetRoute(ss, id) {
+  var sheet = ss.getSheetByName("fleetRoutes");
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === id) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Tuyến đường không tồn tại trên Cloud!" };
+}
+
+// -------------------------------------------------------------
+// ĐỒNG BỘ MỚI: CHUYẾN ĐI (fleetTrips)
+// -------------------------------------------------------------
+function saveFleetTrip(ss, trip, fileData) {
+  var sheet = ss.getSheetByName("fleetTrips");
+  var headers = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong fleetTrips!" };
+  
+  var invoiceUrl = trip.invoice || "";
+  var driveError = false;
+  
+  if (fileData && fileData.base64) {
+    try {
+      var folder = getOrCreateFolder("KeToan_HoaDon");
+      var decoded = Utilities.base64Decode(fileData.base64);
+      var blob = Utilities.newBlob(decoded, fileData.mimeType, fileData.name);
+      var file = folder.createFile(blob);
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      invoiceUrl = file.getUrl();
+      trip.invoice = invoiceUrl;
+    } catch (e) {
+      Logger.log("Lỗi tải Drive hóa đơn chuyến đi: " + e.toString());
+      driveError = true;
+    }
+  }
+  
+  var rowValues = [];
+  for (var c = 0; c < headers.length; c++) {
+    var header = headers[c];
+    var val = trip[header];
+    if (val === undefined || val === null) {
+      rowValues.push("");
+    } else if (["kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub"].includes(header)) {
+      rowValues.push(Number(val) || 0);
+    } else {
+      rowValues.push(val);
+    }
+  }
+  
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === trip.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+  
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true, invoiceUrl: invoiceUrl, driveError: driveError };
+}
+
+function deleteFleetTrip(ss, id) {
+  var sheet = ss.getSheetByName("fleetTrips");
+  var values = sheet.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (values[r][0] === id) {
+      sheet.deleteRow(r + 1);
+      return { success: true };
+    }
+  }
+  return { success: false, error: "Chuyến đi không tồn tại trên Cloud!" };
 }

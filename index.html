@@ -79,6 +79,9 @@
                 <li data-page="reports">
                     <i class="fas fa-chart-bar"></i><span>Báo cáo</span>
                 </li>
+                <li data-page="fleet" id="menuFleet">
+                    <i class="fas fa-truck"></i><span>Quản lý đội xe</span>
+                </li>
                 <li data-page="audit" id="menuAudit" class="admin-only">
                     <i class="fas fa-shield-alt"></i><span>Nhật ký Audit</span>
                 </li>
@@ -528,6 +531,228 @@
                         </thead>
                         <tbody id="auditLogsTable"></tbody>
                     </table>
+                </div>
+            </section>
+
+            <!-- FLEET & DRIVER MANAGEMENT PAGE -->
+            <section id="pageFleet" class="page">
+                <!-- Inner sub-tabs navigation -->
+                <div class="fleet-tabs">
+                    <button class="fleet-tab-btn active" data-tab="trips"><i class="fas fa-route"></i> Lịch trình & Nhiên liệu</button>
+                    <button class="fleet-tab-btn" data-tab="vehicles"><i class="fas fa-truck"></i> Quản lý Xe</button>
+                    <button class="fleet-tab-btn" data-tab="drivers"><i class="fas fa-id-card"></i> Quản lý Lái xe</button>
+                    <button class="fleet-tab-btn" data-tab="routes"><i class="fas fa-map-signs"></i> Tuyến đường</button>
+                    <button class="fleet-tab-btn" data-tab="reports"><i class="fas fa-calculator"></i> Tính Lương & Báo Cáo</button>
+                </div>
+
+                <!-- TAB 1: TRIPS & FUEL -->
+                <div id="fleetTabTrips" class="fleet-tab-content active">
+                    <div class="journal-toolbar">
+                        <button class="btn btn-primary" id="btnAddFleetTrip">
+                            <i class="fas fa-plus"></i> Phân công chuyến đi
+                        </button>
+                        <div class="toolbar-spacer"></div>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="tripSearchInput" placeholder="Tìm tài xế, biển số...">
+                        </div>
+                        <div class="date-filter-group">
+                            <input type="date" id="tripFilterStart" class="filter-date" title="Từ ngày">
+                            <span class="date-sep">➔</span>
+                            <input type="date" id="tripFilterEnd" class="filter-date" title="Đến ngày">
+                        </div>
+                        <select id="tripFilterDriver" class="filter-select">
+                            <option value="all">Tất cả lái xe</option>
+                        </select>
+                        <select id="tripFilterVehicle" class="filter-select">
+                            <option value="all">Tất cả xe</option>
+                        </select>
+                    </div>
+
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Ngày đi</th>
+                                    <th>Lái xe</th>
+                                    <th>Biển số xe</th>
+                                    <th>Lộ trình (Điểm đi ➔ Điểm đến)</th>
+                                    <th>Số km thực tế</th>
+                                    <th>Dầu thực tế đổ</th>
+                                    <th>Dầu định mức</th>
+                                    <th>Chênh lệch</th>
+                                    <th>Phụ cấp chuyến</th>
+                                    <th>Chi phí khác</th>
+                                    <th>Hóa đơn</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fleetTripsTable"></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination-wrapper" id="fleetTripsPagination"></div>
+                </div>
+
+                <!-- TAB 2: VEHICLES -->
+                <div id="fleetTabVehicles" class="fleet-tab-content">
+                    <div class="journal-toolbar">
+                        <button class="btn btn-primary" id="btnAddFleetVehicle">
+                            <i class="fas fa-plus"></i> Thêm xe mới
+                        </button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Biển số</th>
+                                    <th>Loại xe / Tải trọng</th>
+                                    <th>Định mức tiêu hao tiêu chuẩn (Lít/100km)</th>
+                                    <th>Trạng thái</th>
+                                    <th>Ghi chú</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fleetVehiclesTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 3: DRIVERS -->
+                <div id="fleetTabDrivers" class="fleet-tab-content">
+                    <div class="journal-toolbar">
+                        <button class="btn btn-primary" id="btnAddFleetDriver">
+                            <i class="fas fa-user-plus"></i> Thêm lái xe mới
+                        </button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Họ và tên</th>
+                                    <th>Số điện thoại</th>
+                                    <th>Lương cơ bản hàng tháng</th>
+                                    <th>Ghi chú</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fleetDriversTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 4: ROUTES -->
+                <div id="fleetTabRoutes" class="fleet-tab-content">
+                    <div class="journal-toolbar">
+                        <button class="btn btn-primary" id="btnAddFleetRoute">
+                            <i class="fas fa-plus"></i> Thêm tuyến đường mới
+                        </button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>STT</th>
+                                    <th>Tên tuyến đường</th>
+                                    <th>Điểm đi</th>
+                                    <th>Điểm đến</th>
+                                    <th>Khoảng cách tiêu chuẩn (Km)</th>
+                                    <th>Định mức dầu cố định tuyến (Lít)</th>
+                                    <th>Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fleetRoutesTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- TAB 5: REPORTS & SALARY -->
+                <div id="fleetTabReports" class="fleet-tab-content">
+                    <div class="report-filters" style="margin-bottom:18px">
+                        <div class="form-group">
+                            <label>Kiểu báo cáo</label>
+                            <select id="fltReportType" onchange="toggleFleetReportView()" style="padding:10px 14px;border-radius:10px;border:1px solid var(--card-border);background:var(--bg2);color:var(--text)">
+                                <option value="salary">Báo cáo Lương lái xe</option>
+                                <option value="fuel_summary">Thống kê Tiêu hao Nhiên liệu</option>
+                                <option value="operational_summary">Báo cáo Vận hành Tổng hợp</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Từ ngày</label>
+                            <input type="date" id="fltReportStart">
+                        </div>
+                        <div class="form-group">
+                            <label>Đến ngày</label>
+                            <input type="date" id="fltReportEnd">
+                        </div>
+                        <button class="btn btn-primary" id="btnGenFleetReport" style="align-self:flex-end;height:42px;margin-bottom:0">
+                            <i class="fas fa-filter"></i> Lọc báo cáo
+                        </button>
+                        <button class="btn btn-success" id="btnExportFleetReport" style="align-self:flex-end;height:42px;margin-bottom:0">
+                            <i class="fas fa-file-excel"></i> Xuất Excel
+                        </button>
+                        <button class="btn btn-info" id="btnPrintFleetReport" style="align-self:flex-end;height:42px;margin-bottom:0">
+                            <i class="fas fa-print"></i> In PDF
+                        </button>
+                    </div>
+
+                    <!-- Salary Report View -->
+                    <div id="fleetReportSalaryView" class="fleet-report-view active">
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>STT</th>
+                                        <th>Tên lái xe</th>
+                                        <th>Lương cơ bản</th>
+                                        <th>Tổng số chuyến</th>
+                                        <th>Tổng phụ cấp chuyến</th>
+                                        <th>Các khoản cộng (+)</th>
+                                        <th>Các khoản trừ (-)</th>
+                                        <th>Thực nhận lương</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fleetSalaryReportTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Fuel Summary View -->
+                    <div id="fleetReportFuelView" class="fleet-report-view">
+                        <div class="journal-toolbar" style="margin-bottom:12px;padding:0;background:none;border:none">
+                            <label style="margin-right:8px;font-weight:600">Nhóm theo:</label>
+                            <select id="fltReportGroupBy" onchange="generateFleetReport()" style="padding:6px 12px;border-radius:8px;border:1px solid var(--card-border);background:var(--bg2);color:var(--text)">
+                                <option value="date">Ngày vận hành</option>
+                                <option value="driver">Lái xe</option>
+                                <option value="vehicle">Biển số xe</option>
+                                <option value="route">Tuyến đường</option>
+                            </select>
+                        </div>
+                        <div class="table-wrapper">
+                            <table>
+                                <tbody id="fleetFuelReportTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Operational Summary View -->
+                    <div id="fleetReportOperationalView" class="fleet-report-view">
+                        <div class="table-wrapper">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>STT</th>
+                                        <th>Chỉ số Vận hành</th>
+                                        <th>Giá trị tổng cộng</th>
+                                        <th>Chi tiết / Ghi chú</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="fleetOperationalReportTable"></tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
             </section>
 

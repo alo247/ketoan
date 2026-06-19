@@ -7,7 +7,7 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzhT9Uf9uPbCHjWTuR17
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
   { username: 'admin', password: 'admin123', role: 'admin', label: 'Quản trị viên' },
-  { username: 'accountant', password: 'accountant123', role: 'accountant', label: 'Kế toán', permissions: 'view,add,edit,approve,cats,reports,advances_edit,debts_edit' },
+  { username: 'accountant', password: 'accountant123', role: 'accountant', label: 'Kế toán', permissions: 'view,add,edit,approve,cats,reports,advances_edit,debts_edit,fleet_view,fleet_edit,fleet_salary' },
   { username: 'treasurer', password: 'treasurer123', role: 'treasurer', label: 'Thủ quỹ', permissions: 'view,advances_pay,debts_pay' },
   { username: 'staff', password: 'staff123', role: 'staff', label: 'Nhân viên', permissions: 'view_self_advances,advances_submit' },
   { username: 'audit', password: 'audit123', role: 'audit', label: 'Ban kiểm soát', permissions: 'view,approve' },
@@ -24,6 +24,10 @@ let state = {
   debts: [],
   auditLogs: [],
   accounts: [],
+  fleetVehicles: [],
+  fleetDrivers: [],
+  fleetRoutes: [],
+  fleetTrips: [],
   chartMonthly: null,
   chartRatio: null,
   chartReport: null,
@@ -166,6 +170,30 @@ window.sendToCloud = async function (payload) {
         if (idx !== -1) {
           delete state.debts[idx]._unsynced;
         }
+      } else if (payload.action === 'saveFleetVehicle' && payload.vehicle) {
+        const vehId = payload.vehicle.id;
+        const idx = state.fleetVehicles.findIndex(v => v.id === vehId);
+        if (idx !== -1) {
+          delete state.fleetVehicles[idx]._unsynced;
+        }
+      } else if (payload.action === 'saveFleetDriver' && payload.driver) {
+        const drvId = payload.driver.id;
+        const idx = state.fleetDrivers.findIndex(d => d.id === drvId);
+        if (idx !== -1) {
+          delete state.fleetDrivers[idx]._unsynced;
+        }
+      } else if (payload.action === 'saveFleetRoute' && payload.route) {
+        const rotId = payload.route.id;
+        const idx = state.fleetRoutes.findIndex(r => r.id === rotId);
+        if (idx !== -1) {
+          delete state.fleetRoutes[idx]._unsynced;
+        }
+      } else if (payload.action === 'saveFleetTrip' && payload.trip) {
+        const trpId = payload.trip.id;
+        const idx = state.fleetTrips.findIndex(t => t.id === trpId);
+        if (idx !== -1) {
+          delete state.fleetTrips[idx]._unsynced;
+        }
       } else if (payload.action === 'restoreAll') {
         state.entries.forEach(e => {
           delete e._unsynced;
@@ -175,6 +203,18 @@ window.sendToCloud = async function (payload) {
         });
         state.debts.forEach(d => {
           delete d._unsynced;
+        });
+        state.fleetVehicles.forEach(v => {
+          delete v._unsynced;
+        });
+        state.fleetDrivers.forEach(d => {
+          delete d._unsynced;
+        });
+        state.fleetRoutes.forEach(r => {
+          delete r._unsynced;
+        });
+        state.fleetTrips.forEach(t => {
+          delete t._unsynced;
         });
       }
 
@@ -193,10 +233,17 @@ window.sendToCloud = async function (payload) {
             state.advances[idx].settlementInvoice = data.invoiceUrl;
           }
         }
+        if (payload.trip) {
+          const trpId = payload.trip.id;
+          const idx = state.fleetTrips.findIndex(t => t.id === trpId);
+          if (idx !== -1) {
+            state.fleetTrips[idx].invoice = data.invoiceUrl;
+          }
+        }
       }
 
       saveData();
-      updateJournalView();
+      triggerViewUpdate();
       
       // Phát thông báo đồng bộ tức thời cho các tab trình duyệt khác
       if (syncChannel) {
@@ -347,11 +394,81 @@ async function loadData(silent = false) {
       });
       state.auditLogs = Array.from(auditLogMap.values()).sort((a, b) => b.timestamp.localeCompare(a.timestamp)).slice(0, 1000);
 
+      // Thuật toán gộp cho Fleet Vehicles
+      const serverFleetVehicles = data.fleetVehicles || [];
+      const localFleetVehicles = JSON.parse(localStorage.getItem('tc_fleet_vehicles') || '[]');
+      const mergedFleetVehicles = [...serverFleetVehicles];
+      localFleetVehicles.forEach(le => {
+        const se = serverFleetVehicles.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) mergedFleetVehicles.push(le);
+        } else if (le._unsynced) {
+          const idx = mergedFleetVehicles.findIndex(x => x.id === se.id);
+          if (idx !== -1) mergedFleetVehicles[idx] = { ...mergedFleetVehicles[idx], ...le };
+        }
+      });
+      state.fleetVehicles = mergedFleetVehicles;
+
+      // Thuật toán gộp cho Fleet Drivers
+      const serverFleetDrivers = data.fleetDrivers || [];
+      const localFleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
+      const mergedFleetDrivers = [...serverFleetDrivers];
+      localFleetDrivers.forEach(le => {
+        const se = serverFleetDrivers.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) mergedFleetDrivers.push(le);
+        } else if (le._unsynced) {
+          const idx = mergedFleetDrivers.findIndex(x => x.id === se.id);
+          if (idx !== -1) mergedFleetDrivers[idx] = { ...mergedFleetDrivers[idx], ...le };
+        }
+      });
+      state.fleetDrivers = mergedFleetDrivers;
+
+      // Thuật toán gộp cho Fleet Routes
+      const serverFleetRoutes = data.fleetRoutes || [];
+      const localFleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
+      const mergedFleetRoutes = [...serverFleetRoutes];
+      localFleetRoutes.forEach(le => {
+        const se = serverFleetRoutes.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) mergedFleetRoutes.push(le);
+        } else if (le._unsynced) {
+          const idx = mergedFleetRoutes.findIndex(x => x.id === se.id);
+          if (idx !== -1) mergedFleetRoutes[idx] = { ...mergedFleetRoutes[idx], ...le };
+        }
+      });
+      state.fleetRoutes = mergedFleetRoutes;
+
+      // Thuật toán gộp cho Fleet Trips
+      const serverFleetTrips = data.fleetTrips || [];
+      const localFleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
+      const mergedFleetTrips = [...serverFleetTrips];
+      localFleetTrips.forEach(le => {
+        const se = serverFleetTrips.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) mergedFleetTrips.push(le);
+        } else {
+          if (le.invoice && le.invoice.startsWith('data:') && !se.invoice) {
+            const idx = mergedFleetTrips.findIndex(x => x.id === se.id);
+            if (idx !== -1) mergedFleetTrips[idx].invoice = le.invoice;
+          }
+          if (le._unsynced) {
+            const idx = mergedFleetTrips.findIndex(x => x.id === se.id);
+            if (idx !== -1) mergedFleetTrips[idx] = { ...mergedFleetTrips[idx], ...le };
+          }
+        }
+      });
+      state.fleetTrips = mergedFleetTrips;
+
       localStorage.setItem('tc_users', JSON.stringify(state.users));
       localStorage.setItem('tc_entries', JSON.stringify(state.entries));
       localStorage.setItem('tc_advances', JSON.stringify(state.advances));
       localStorage.setItem('tc_debts', JSON.stringify(state.debts));
       localStorage.setItem('tc_audit_logs', JSON.stringify(state.auditLogs));
+      localStorage.setItem('tc_fleet_vehicles', JSON.stringify(state.fleetVehicles));
+      localStorage.setItem('tc_fleet_drivers', JSON.stringify(state.fleetDrivers));
+      localStorage.setItem('tc_fleet_routes', JSON.stringify(state.fleetRoutes));
+      localStorage.setItem('tc_fleet_trips', JSON.stringify(state.fleetTrips));
     } else {
       state.users = JSON.parse(localStorage.getItem('tc_users') || 'null') || [...DEFAULT_USERS];
       state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
@@ -359,6 +476,10 @@ async function loadData(silent = false) {
       state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
       state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
       state.accounts = window.getAccounts ? window.getAccounts() : [];
+      state.fleetVehicles = JSON.parse(localStorage.getItem('tc_fleet_vehicles') || '[]');
+      state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
+      state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
+      state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
     }
   } catch (err) {
     console.warn("Cloud load failed, using local storage:", err);
@@ -368,6 +489,10 @@ async function loadData(silent = false) {
     state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
     state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
     state.accounts = window.getAccounts ? window.getAccounts() : [];
+    state.fleetVehicles = JSON.parse(localStorage.getItem('tc_fleet_vehicles') || '[]');
+    state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
+    state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
+    state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
   } finally {
     if (loadingEl) loadingEl.remove();
     
@@ -439,6 +564,10 @@ function saveData() {
   localStorage.setItem('tc_advances', JSON.stringify(state.advances));
   localStorage.setItem('tc_debts', JSON.stringify(state.debts));
   localStorage.setItem('tc_audit_logs', JSON.stringify(state.auditLogs));
+  localStorage.setItem('tc_fleet_vehicles', JSON.stringify(state.fleetVehicles));
+  localStorage.setItem('tc_fleet_drivers', JSON.stringify(state.fleetDrivers));
+  localStorage.setItem('tc_fleet_routes', JSON.stringify(state.fleetRoutes));
+  localStorage.setItem('tc_fleet_trips', JSON.stringify(state.fleetTrips));
   if (window.saveAccounts) window.saveAccounts(state.accounts);
 }
 
@@ -470,10 +599,10 @@ function hasPermission(perm) {
     return ['view', 'approve'].includes(perm);
   }
   if (state.currentUser.role === 'editor') {
-    return ['view', 'add', 'edit', 'invoice', 'cats'].includes(perm);
+    return ['view', 'add', 'edit', 'invoice', 'cats', 'fleet_view', 'fleet_edit'].includes(perm);
   }
   if (state.currentUser.role === 'accountant') {
-    return ['view', 'add', 'edit', 'approve', 'cats', 'reports', 'advances_edit', 'debts_edit'].includes(perm);
+    return ['view', 'add', 'edit', 'approve', 'cats', 'reports', 'advances_edit', 'debts_edit', 'fleet_view', 'fleet_edit', 'fleet_salary'].includes(perm);
   }
   if (state.currentUser.role === 'treasurer') {
     return ['view', 'advances_pay', 'debts_pay'].includes(perm);
@@ -498,6 +627,9 @@ function triggerViewUpdate() {
     if (page === 'categories') renderCategoryPage();
     if (page === 'reports') {
       if (typeof generateReport === 'function') generateReport();
+    }
+    if (page === 'fleet') {
+      if (typeof renderFleetPage === 'function') renderFleetPage();
     }
     if (page === 'audit') renderAuditLogs();
     if (page === 'settings') renderSettings();
@@ -617,6 +749,7 @@ const pageTitles = {
   debts: 'Quản Lý Công Nợ',
   categories: 'Quản Lý Danh Mục',
   reports: 'Báo Cáo Tài Chính & P&L',
+  fleet: 'Quản lý Đội Xe & Lái Xe',
   audit: 'Nhật Ký Kiểm Toán (Audit Trail)',
   settings: 'Cài Đặt Hệ Thống'
 };
@@ -633,12 +766,17 @@ function configureNavigationForRole() {
   const menuDebts = $('menuDebts');
   const menuCategories = $('menuCategories');
   const menuReports = getMenuItem('reports');
+  const menuFleet = $('menuFleet');
   const menuAudit = $('menuAudit');
   const menuSettings = $('menuSettings');
   
-  [menuDashboard, menuJournal, menuAdvances, menuDebts, menuCategories, menuReports, menuAudit, menuSettings].forEach(m => {
+  [menuDashboard, menuJournal, menuAdvances, menuDebts, menuCategories, menuReports, menuFleet, menuAudit, menuSettings].forEach(m => {
     if (m) m.classList.remove('hidden');
   });
+
+  if (!hasPermission('fleet_view')) {
+    if (menuFleet) menuFleet.classList.add('hidden');
+  }
 
   if (role === 'staff') {
     if (menuJournal) menuJournal.classList.add('hidden');
@@ -649,7 +787,7 @@ function configureNavigationForRole() {
     if (menuAudit) menuAudit.classList.add('hidden');
     
     const activeLi = document.querySelector('.sidebar-menu li.active');
-    if (activeLi && ['journal', 'debts', 'categories', 'reports', 'settings', 'audit'].includes(activeLi.dataset.page)) {
+    if (activeLi && ['journal', 'debts', 'categories', 'reports', 'settings', 'audit', 'fleet'].includes(activeLi.dataset.page)) {
       if (menuDashboard) menuDashboard.click();
     }
   } else if (role === 'treasurer') {
@@ -659,7 +797,7 @@ function configureNavigationForRole() {
     if (menuAudit) menuAudit.classList.add('hidden');
     
     const activeLi = document.querySelector('.sidebar-menu li.active');
-    if (activeLi && ['categories', 'reports', 'settings', 'audit'].includes(activeLi.dataset.page)) {
+    if (activeLi && ['categories', 'reports', 'settings', 'audit', 'fleet'].includes(activeLi.dataset.page)) {
       if (menuJournal) menuJournal.click();
     }
   } else if (role === 'accountant') {
@@ -701,6 +839,7 @@ document.querySelectorAll('.sidebar-menu li').forEach(li => {
     if (page === 'debts') renderDebts();
     if (page === 'categories') renderCategoryPage();
     if (page === 'reports') initReportPage();
+    if (page === 'fleet') renderFleetPage();
     if (page === 'audit') renderAuditLogs();
     if (page === 'settings') renderSettings();
     
@@ -2187,9 +2326,9 @@ window.editUserPermissions = function (username) {
   if (u.permissions) {
     activePerms = typeof u.permissions === 'string' ? u.permissions.split(',') : u.permissions;
   } else {
-    if (u.role === 'admin') activePerms = ['view', 'add', 'edit', 'delete', 'invoice', 'approve', 'users', 'cats', 'reports', 'advances_edit', 'debts_edit'];
+    if (u.role === 'admin') activePerms = ['view', 'add', 'edit', 'delete', 'invoice', 'approve', 'users', 'cats', 'reports', 'advances_edit', 'debts_edit', 'fleet_view', 'fleet_edit', 'fleet_salary'];
     else if (u.role === 'audit') activePerms = ['view', 'approve'];
-    else if (u.role === 'editor') activePerms = ['view', 'add', 'edit', 'invoice', 'cats'];
+    else if (u.role === 'editor') activePerms = ['view', 'add', 'edit', 'invoice', 'cats', 'fleet_view', 'fleet_edit'];
     else activePerms = ['view'];
   }
 
@@ -2231,6 +2370,15 @@ window.editUserPermissions = function (username) {
       perms: [
         { key: 'debts_edit', label: 'Kế toán kiểm soát công nợ', desc: 'Quyền theo dõi, thiết lập và quản lý công nợ Phải thu/Phải trả.' },
         { key: 'debts_pay', label: 'Thủ quỹ chi trả/Thu nợ', desc: 'Quyền thực hiện thu tiền nợ khách hàng hoặc chi tiền trả nợ nhà cung cấp.' }
+      ]
+    },
+    {
+      title: '🚚 Quyền Quản lý Đội xe & Lái xe',
+      color: '#3b82f6',
+      perms: [
+        { key: 'fleet_view', label: 'Xem quản lý đội xe', desc: 'Xem danh sách xe, lái xe, lịch trình và báo cáo tiêu hao nhiên liệu.' },
+        { key: 'fleet_edit', label: 'Cập nhật đội xe', desc: 'Thêm, sửa, xóa thông tin xe, lái xe, phân công chuyến đi và ghi nhận dầu.' },
+        { key: 'fleet_salary', label: 'Tính lương lái xe', desc: 'Xem và tính lương cho lái xe theo chuyến và lương cơ bản.' }
       ]
     }
   ];
@@ -2323,10 +2471,10 @@ window.saveNewUser = function () {
   let permissions = 'view';
   let label = 'Chỉ xem';
   if (role === 'admin') {
-    permissions = 'view,add,edit,delete,invoice,approve,users,cats,reports,advances_edit,debts_edit';
+    permissions = 'view,add,edit,delete,invoice,approve,users,cats,reports,advances_edit,debts_edit,fleet_view,fleet_edit,fleet_salary';
     label = 'Quản trị viên';
   } else if (role === 'accountant') {
-    permissions = 'view,add,edit,approve,cats,reports,advances_edit,debts_edit';
+    permissions = 'view,add,edit,approve,cats,reports,advances_edit,debts_edit,fleet_view,fleet_edit,fleet_salary';
     label = 'Kế toán';
   } else if (role === 'treasurer') {
     permissions = 'view,advances_pay,debts_pay';
@@ -3766,7 +3914,1597 @@ async function runPolling() {
   initTheme();
   window.populateFilterCategories();
   wireUpAdvancedModules();
+  initFleetModule();
   
   // Thiết lập tự động đồng bộ hóa thời gian thực (background adaptive polling)
   runPolling();
 })();
+// -------------------------------------------------------------
+// MODULE QUẢN LÝ ĐỘI XE & LÁI XE (FLEET MANAGEMENT MODULE)
+// -------------------------------------------------------------
+
+let fleetActiveTab = 'trips';
+let fleetTripsPage = 1;
+const fleetTripsLimit = 15;
+let fleetTripInvoiceFile = null;
+
+function initFleetModule() {
+  // Đăng ký sự kiện chuyển Tab nội bộ
+  document.querySelectorAll('.fleet-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.fleet-tab-btn').forEach(x => x.classList.remove('active'));
+      btn.classList.add('active');
+      
+      const tab = btn.dataset.tab;
+      fleetActiveTab = tab;
+      
+      document.querySelectorAll('.fleet-tab-content').forEach(c => c.classList.remove('active'));
+      const activeContent = $('fleetTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
+      if (activeContent) activeContent.classList.add('active');
+      
+      renderFleetActiveTab();
+    });
+  });
+
+  // Thiết lập sự kiện click cho các nút thêm mới
+  $('btnAddFleetTrip')?.addEventListener('click', showAddTripForm);
+  $('btnAddFleetVehicle')?.addEventListener('click', showAddVehicleForm);
+  $('btnAddFleetDriver')?.addEventListener('click', showAddDriverForm);
+  $('btnAddFleetRoute')?.addEventListener('click', showAddRouteForm);
+  
+  // Bộ lọc chuyến đi
+  $('tripSearchInput')?.addEventListener('input', () => { fleetTripsPage = 1; renderFleetTrips(); });
+  $('tripFilterStart')?.addEventListener('change', () => { fleetTripsPage = 1; renderFleetTrips(); });
+  $('tripFilterEnd')?.addEventListener('change', () => { fleetTripsPage = 1; renderFleetTrips(); });
+  $('tripFilterDriver')?.addEventListener('change', () => { fleetTripsPage = 1; renderFleetTrips(); });
+  $('tripFilterVehicle')?.addEventListener('change', () => { fleetTripsPage = 1; renderFleetTrips(); });
+
+  // Bộ lọc báo cáo
+  $('btnGenFleetReport')?.addEventListener('click', generateFleetReport);
+  $('btnExportFleetReport')?.addEventListener('click', exportFleetReport);
+  $('btnPrintFleetReport')?.addEventListener('click', printFleetReport);
+
+  // Gán ngày mặc định cho bộ lọc báo cáo (Tháng hiện tại)
+  if ($('fltReportStart')) {
+    const todayDate = new Date();
+    const firstDay = new Date(todayDate.getFullYear(), todayDate.getMonth(), 1);
+    $('fltReportStart').value = firstDay.toISOString().slice(0, 10);
+    $('fltReportEnd').value = todayDate.toISOString().slice(0, 10);
+  }
+}
+
+function renderFleetPage() {
+  if (!hasPermission('fleet_view')) {
+    toast('Bạn không có quyền truy cập trang này!', 'error');
+    const menuDashboard = document.querySelector('.sidebar-menu li[data-page="dashboard"]');
+    if (menuDashboard) menuDashboard.click();
+    return;
+  }
+  
+  // Nạp dữ liệu các bộ lọc dropdown
+  populateFleetFilters();
+  
+  // Vẽ dữ liệu cho tab đang hoạt động
+  renderFleetActiveTab();
+}
+
+function renderFleetActiveTab() {
+  if (fleetActiveTab === 'trips') renderFleetTrips();
+  if (fleetActiveTab === 'vehicles') renderFleetVehicles();
+  if (fleetActiveTab === 'drivers') renderFleetDrivers();
+  if (fleetActiveTab === 'routes') renderFleetRoutes();
+  if (fleetActiveTab === 'reports') generateFleetReport();
+}
+
+function populateFleetFilters() {
+  const drvSelect = $('tripFilterDriver');
+  if (drvSelect) {
+    const prev = drvSelect.value;
+    drvSelect.innerHTML = '<option value="all">Tất cả lái xe</option>' + 
+      state.fleetDrivers.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    drvSelect.value = prev || 'all';
+  }
+
+  const vehSelect = $('tripFilterVehicle');
+  if (vehSelect) {
+    const prev = vehSelect.value;
+    vehSelect.innerHTML = '<option value="all">Tất cả xe</option>' + 
+      state.fleetVehicles.map(v => `<option value="${v.id}">${v.plate}</option>`).join('');
+    vehSelect.value = prev || 'all';
+  }
+}
+
+// Hàm tính dầu định mức của chuyến đi
+function getTripFuelNorm(trip) {
+  // 1. Ưu tiên định mức dầu cố định theo Tuyến đường cấu hình
+  const route = state.fleetRoutes.find(r => r.id === trip.routeId);
+  if (route && Number(route.fuelNorm) > 0) {
+    return Number(route.fuelNorm);
+  }
+  // 2. Nếu không có, tự động tính bằng: Số km * Định mức tiêu chuẩn xe / 100
+  const vehicle = state.fleetVehicles.find(v => v.id === trip.vehicleId);
+  if (vehicle && Number(vehicle.fuelNorm) > 0) {
+    return Number(trip.kmActual) * (Number(vehicle.fuelNorm) / 100);
+  }
+  return 0;
+}
+
+// -------------------------------------------------------------
+// RENDER TABS
+// -------------------------------------------------------------
+
+// 1. TAB LỊCH TRÌNH & NHIÊN LIỆU
+function renderFleetTrips() {
+  const tbody = $('fleetTripsTable');
+  if (!tbody) return;
+
+  const search = $('tripSearchInput')?.value.toLowerCase().trim() || '';
+  const start = $('tripFilterStart')?.value || '';
+  const end = $('tripFilterEnd')?.value || '';
+  const driverId = $('tripFilterDriver')?.value || 'all';
+  const vehicleId = $('tripFilterVehicle')?.value || 'all';
+
+  let filtered = [...state.fleetTrips];
+
+  // Áp dụng bộ lọc
+  if (search) {
+    filtered = filtered.filter(t => {
+      const drv = state.fleetDrivers.find(d => d.id === t.driverId);
+      const veh = state.fleetVehicles.find(v => v.id === t.vehicleId);
+      return (drv && drv.name.toLowerCase().includes(search)) || 
+             (veh && veh.plate.toLowerCase().includes(search)) || 
+             (t.startPoint && t.startPoint.toLowerCase().includes(search)) ||
+             (t.endPoint && t.endPoint.toLowerCase().includes(search)) ||
+             (t.notes && t.notes.toLowerCase().includes(search));
+    });
+  }
+  if (start) filtered = filtered.filter(t => t.date >= start);
+  if (end) filtered = filtered.filter(t => t.date <= end);
+  if (driverId !== 'all') filtered = filtered.filter(t => t.driverId === driverId);
+  if (vehicleId !== 'all') filtered = filtered.filter(t => t.vehicleId === vehicleId);
+
+  // Sắp xếp ngày mới nhất lên đầu
+  filtered.sort((a, b) => b.date.localeCompare(a.date));
+
+  // Phân trang
+  const total = filtered.length;
+  const totalPages = Math.ceil(total / fleetTripsLimit) || 1;
+  if (fleetTripsPage > totalPages) fleetTripsPage = totalPages;
+  const startIdx = (fleetTripsPage - 1) * fleetTripsLimit;
+  const paginated = filtered.slice(startIdx, startIdx + fleetTripsLimit);
+
+  const canEdit = hasPermission('fleet_edit');
+  
+  tbody.innerHTML = paginated.map((t, idx) => {
+    const drv = state.fleetDrivers.find(d => d.id === t.driverId);
+    const veh = state.fleetVehicles.find(v => v.id === t.vehicleId);
+    const drvName = drv ? drv.name : 'Chưa rõ';
+    const vehPlate = veh ? veh.plate : 'Chưa rõ';
+    
+    const kmActual = Number(t.kmActual) || 0;
+    const fuelActual = Number(t.fuelActual) || 0;
+    
+    // Tính nhiên liệu định mức và chênh lệch chênh lệch
+    const fuelNorm = Number(t.fuelNorm) || getTripFuelNorm(t);
+    const diff = fuelActual - fuelNorm;
+    
+    let diffHtml = '';
+    if (diff > 0) {
+      diffHtml = `<span class="badge-fuel-warning" title="Vượt định mức tiêu hao"><i class="fas fa-exclamation-triangle"></i> Vượt ${diff.toFixed(1)}L</span>`;
+    } else {
+      diffHtml = `<span class="badge-fuel-safe" title="Tiết kiệm dầu"><i class="fas fa-check"></i> -${Math.abs(diff).toFixed(1)}L</span>`;
+    }
+
+    const allowance = Number(t.allowance) || 0;
+    const expense = Number(t.expense) || 0;
+    
+    // Chứng từ ảnh
+    let invoiceHtml = '-';
+    if (t.invoice) {
+      if (t.invoice.startsWith('data:')) {
+        invoiceHtml = `<a href="javascript:void(0)" onclick="showTripInvoiceZoom('${t.id}')" style="color:var(--yellow)"><i class="fas fa-file-image"></i> Chưa đồng bộ</a>`;
+      } else {
+        invoiceHtml = `<a href="${t.invoice}" target="_blank" style="color:var(--primary)"><i class="fas fa-receipt"></i> Xem hóa đơn</a>`;
+      }
+    }
+
+    const globalIdx = startIdx + idx + 1;
+    
+    return `
+      <tr>
+        <td>${globalIdx}</td>
+        <td>${t.date}</td>
+        <td><strong>${drvName}</strong></td>
+        <td><span style="font-family:monospace;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:6px">${vehPlate}</span></td>
+        <td>${t.startPoint} ➔ ${t.endPoint}</td>
+        <td>${fmtThousands(kmActual)} km</td>
+        <td>${fuelActual.toFixed(1)} L</td>
+        <td>${fuelNorm.toFixed(1)} L</td>
+        <td>${diffHtml}</td>
+        <td style="color:var(--green)">${fmtThousands(allowance)} ₫</td>
+        <td style="color:var(--red)">${fmtThousands(expense)} ₫</td>
+        <td>${invoiceHtml}</td>
+        <td>
+          ${canEdit ? `
+            <button class="btn btn-primary btn-sm" onclick="showEditTripForm('${t.id}')" title="Sửa"><i class="fas fa-edit"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteFleetTrip('${t.id}')" title="Xóa"><i class="fas fa-trash"></i></button>
+          ` : '-'}
+        </td>
+      </tr>
+    `;
+  }).join('') || `<tr><td colspan="13" style="text-align:center;color:var(--text2);padding:30px">Chưa có dữ liệu chuyến đi nào</td></tr>`;
+
+  // Vẽ nút phân trang
+  renderFleetPagination(totalPages);
+}
+
+function renderFleetPagination(totalPages) {
+  const pagEl = $('fleetTripsPagination');
+  if (!pagEl) return;
+  if (totalPages <= 1) {
+    pagEl.innerHTML = '';
+    return;
+  }
+  
+  pagEl.innerHTML = `
+    <button class="btn btn-secondary btn-sm" ${fleetTripsPage === 1 ? 'disabled' : ''} onclick="changeFleetTripsPage(${fleetTripsPage - 1})">
+      <i class="fas fa-chevron-left"></i> Trước
+    </button>
+    <span class="pagination-info" style="color:var(--text2);font-size:0.85rem">Trang <strong>${fleetTripsPage}</strong> / ${totalPages}</span>
+    <button class="btn btn-secondary btn-sm" ${fleetTripsPage === totalPages ? 'disabled' : ''} onclick="changeFleetTripsPage(${fleetTripsPage + 1})">
+      Sau <i class="fas fa-chevron-right"></i>
+    </button>
+  `;
+}
+
+window.changeFleetTripsPage = function(p) {
+  fleetTripsPage = p;
+  renderFleetTrips();
+};
+
+// 2. TAB QUẢN LÝ XE
+function renderFleetVehicles() {
+  const tbody = $('fleetVehiclesTable');
+  if (!tbody) return;
+
+  const canEdit = hasPermission('fleet_edit');
+  
+  tbody.innerHTML = state.fleetVehicles.map((v, idx) => {
+    const fuelNorm = Number(v.fuelNorm) || 0;
+    const statusClass = v.status === 'Bảo dưỡng' ? 'badge-unpaid' : 'badge-settled';
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><strong style="font-family:monospace;background:rgba(255,255,255,0.05);padding:4px 8px;border-radius:6px">${v.plate}</strong></td>
+        <td>${v.model || 'Chưa rõ'}</td>
+        <td>${fuelNorm} L/100km</td>
+        <td><span class="badge ${statusClass}">${v.status || 'Hoạt động'}</span></td>
+        <td><span style="font-size:0.85rem;color:var(--text2)">${v.notes || '-'}</span></td>
+        <td>
+          ${canEdit ? `
+            <button class="btn btn-primary btn-sm" onclick="showEditVehicleForm('${v.id}')"><i class="fas fa-edit"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteFleetVehicle('${v.id}')"><i class="fas fa-trash"></i></button>
+          ` : '-'}
+        </td>
+      </tr>
+    `;
+  }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">Chưa có xe nào được thiết lập</td></tr>`;
+}
+
+// 3. TAB QUẢN LÝ LÁI XE
+function renderFleetDrivers() {
+  const tbody = $('fleetDriversTable');
+  if (!tbody) return;
+
+  const canEdit = hasPermission('fleet_edit');
+  
+  tbody.innerHTML = state.fleetDrivers.map((d, idx) => {
+    const baseSalary = Number(d.baseSalary) || 0;
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><strong>${d.name}</strong></td>
+        <td>${d.phone || '-'}</td>
+        <td style="color:var(--blue);font-weight:600">${fmtThousands(baseSalary)} ₫</td>
+        <td><span style="font-size:0.85rem;color:var(--text2)">${d.notes || '-'}</span></td>
+        <td>
+          ${canEdit ? `
+            <button class="btn btn-primary btn-sm" onclick="showEditDriverForm('${d.id}')"><i class="fas fa-edit"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteFleetDriver('${d.id}')"><i class="fas fa-trash"></i></button>
+          ` : '-'}
+        </td>
+      </tr>
+    `;
+  }).join('') || `<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:30px">Chưa có tài xế nào được thiết lập</td></tr>`;
+}
+
+// 4. TAB TUYẾN ĐƯỜNG
+function renderFleetRoutes() {
+  const tbody = $('fleetRoutesTable');
+  if (!tbody) return;
+
+  const canEdit = hasPermission('fleet_edit');
+  
+  tbody.innerHTML = state.fleetRoutes.map((r, idx) => {
+    const dist = Number(r.distance) || 0;
+    const fuel = Number(r.fuelNorm) || 0;
+    const fuelText = fuel > 0 ? `${fuel} L` : 'Tính theo định mức xe';
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><strong>${r.name}</strong></td>
+        <td>${r.startPoint}</td>
+        <td>${r.endPoint}</td>
+        <td>${dist} km</td>
+        <td><span class="badge badge-paid">${fuelText}</span></td>
+        <td>
+          ${canEdit ? `
+            <button class="btn btn-primary btn-sm" onclick="showEditRouteForm('${r.id}')"><i class="fas fa-edit"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteFleetRoute('${r.id}')"><i class="fas fa-trash"></i></button>
+          ` : '-'}
+        </td>
+      </tr>
+    `;
+  }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">Chưa có tuyến đường nào được thiết lập</td></tr>`;
+}
+
+// Hỗ trợ vẽ select dropdown
+function getVehicleOptionsHtml(selectedId) {
+  return state.fleetVehicles.map(v => `<option value="${v.id}" ${v.id === selectedId ? 'selected' : ''}>${v.plate} - ${v.model} (${v.fuelNorm}L/100km)</option>`).join('');
+}
+
+function getDriverOptionsHtml(selectedId) {
+  return state.fleetDrivers.map(d => `<option value="${d.id}" ${d.id === selectedId ? 'selected' : ''}>${d.name} (${d.phone})</option>`).join('');
+}
+
+function getRouteOptionsHtml(selectedId) {
+  return '<option value="">-- Chọn tuyến mẫu (hoặc điền tự do bên dưới) --</option>' + 
+    state.fleetRoutes.map(r => `<option value="${r.id}" ${r.id === selectedId ? 'selected' : ''}>${r.name} (${r.distance}km - ${r.fuelNorm > 0 ? r.fuelNorm + 'L' : 'Dầu xe'})</option>`).join('');
+}
+
+// -------------------------------------------------------------
+// CRUD THỦ TỤC & PHƯƠNG THỨC LƯU
+// -------------------------------------------------------------
+
+// QUẢN LÝ XE (VEHICLES)
+function showAddVehicleForm() {
+  openModal('Thêm xe mới', `
+    <div class="form-group">
+      <label>Biển số xe *</label>
+      <input type="text" id="fVehPlate" placeholder="Ví dụ: 29C-123.45">
+    </div>
+    <div class="form-group">
+      <label>Loại xe / Tải trọng</label>
+      <input type="text" id="fVehModel" placeholder="Ví dụ: Xe tải 5 tấn, 3 chân...">
+    </div>
+    <div class="form-group">
+      <label>Định mức dầu tiêu chuẩn (Lít/100km) *</label>
+      <input type="number" id="fVehFuel" step="0.1" value="15">
+    </div>
+    <div class="form-group">
+      <label>Trạng thái vận hành</label>
+      <select id="fVehStatus">
+        <option value="Hoạt động">Hoạt động</option>
+        <option value="Bảo dưỡng">Bảo dưỡng</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Ghi chú</label>
+      <input type="text" id="fVehNotes" placeholder="Ghi chú về kiểm định, bảo hiểm...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetVehicle()"><i class="fas fa-save"></i> Thêm xe</button>
+    </div>
+  `);
+}
+
+function showEditVehicleForm(id) {
+  const v = state.fleetVehicles.find(x => x.id === id);
+  if (!v) return;
+
+  openModal('Sửa thông tin xe', `
+    <div class="form-group">
+      <label>Biển số xe *</label>
+      <input type="text" id="fVehPlate" value="${v.plate}">
+    </div>
+    <div class="form-group">
+      <label>Loại xe / Tải trọng</label>
+      <input type="text" id="fVehModel" value="${v.model || ''}">
+    </div>
+    <div class="form-group">
+      <label>Định mức dầu tiêu chuẩn (Lít/100km) *</label>
+      <input type="number" id="fVehFuel" step="0.1" value="${v.fuelNorm}">
+    </div>
+    <div class="form-group">
+      <label>Trạng thái vận hành</label>
+      <select id="fVehStatus">
+        <option value="Hoạt động" ${v.status === 'Hoạt động' ? 'selected' : ''}>Hoạt động</option>
+        <option value="Bảo dưỡng" ${v.status === 'Bảo dưỡng' ? 'selected' : ''}>Bảo dưỡng</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Ghi chú</label>
+      <input type="text" id="fVehNotes" value="${v.notes || ''}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetVehicle('${v.id}')"><i class="fas fa-save"></i> Cập nhật</button>
+    </div>
+  `);
+}
+
+function saveFleetVehicle(editingId = null) {
+  const plate = $('fVehPlate').value.trim();
+  const model = $('fVehModel').value.trim();
+  const fuelNorm = parseFloat($('fVehFuel').value) || 0;
+  const status = $('fVehStatus').value;
+  const notes = $('fVehNotes').value.trim();
+
+  if (!plate || fuelNorm <= 0) {
+    toast('Vui lòng nhập biển số xe và định mức nhiên liệu hợp lệ!', 'error');
+    return;
+  }
+
+  const id = editingId || 'v_' + Date.now();
+  const vehicle = { id, plate, model, fuelNorm, status, notes };
+
+  if (editingId) {
+    const idx = state.fleetVehicles.findIndex(x => x.id === editingId);
+    if (idx !== -1) {
+      state.fleetVehicles[idx] = { ...vehicle, _unsynced: true };
+    }
+  } else {
+    vehicle._unsynced = true;
+    state.fleetVehicles.push(vehicle);
+  }
+
+  saveData();
+  window.sendToCloud({ action: 'saveFleetVehicle', vehicle });
+  closeModal();
+  renderFleetVehicles();
+  toast('Đã lưu thông tin xe!');
+}
+
+function deleteFleetVehicle(id) {
+  if (!confirm('Bạn có chắc chắn muốn xóa xe này?')) return;
+  state.fleetVehicles = state.fleetVehicles.filter(x => x.id !== id);
+  saveData();
+  window.sendToCloud({ action: 'deleteFleetVehicle', id });
+  renderFleetVehicles();
+  toast('Đã xóa xe!');
+}
+
+// QUẢN LÝ LÁI XE (DRIVERS)
+function showAddDriverForm() {
+  openModal('Thêm tài xế mới', `
+    <div class="form-group">
+      <label>Họ và tên lái xe *</label>
+      <input type="text" id="fDrvName" placeholder="Ví dụ: Nguyễn Văn A">
+    </div>
+    <div class="form-group">
+      <label>Số điện thoại liên hệ</label>
+      <input type="text" id="fDrvPhone" placeholder="Ví dụ: 0912345678">
+    </div>
+    <div class="form-group">
+      <label>Lương cơ bản hàng tháng *</label>
+      <input type="number" id="fDrvSalary" value="8000000" step="100000">
+    </div>
+    <div class="form-group">
+      <label>Ghi chú thêm</label>
+      <input type="text" id="fDrvNotes" placeholder="Nhập bằng lái, hạn khám sức khỏe...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetDriver()"><i class="fas fa-save"></i> Lưu tài xế</button>
+    </div>
+  `);
+}
+
+function showEditDriverForm(id) {
+  const d = state.fleetDrivers.find(x => x.id === id);
+  if (!d) return;
+
+  openModal('Sửa thông tin lái xe', `
+    <div class="form-group">
+      <label>Họ và tên lái xe *</label>
+      <input type="text" id="fDrvName" value="${d.name}">
+    </div>
+    <div class="form-group">
+      <label>Số điện thoại liên hệ</label>
+      <input type="text" id="fDrvPhone" value="${d.phone || ''}">
+    </div>
+    <div class="form-group">
+      <label>Lương cơ bản hàng tháng *</label>
+      <input type="number" id="fDrvSalary" value="${d.baseSalary}" step="100000">
+    </div>
+    <div class="form-group">
+      <label>Ghi chú thêm</label>
+      <input type="text" id="fDrvNotes" value="${d.notes || ''}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetDriver('${d.id}')"><i class="fas fa-save"></i> Cập nhật</button>
+    </div>
+  `);
+}
+
+function saveFleetDriver(editingId = null) {
+  const name = $('fDrvName').value.trim();
+  const phone = $('fDrvPhone').value.trim();
+  const baseSalary = parseFloat($('fDrvSalary').value) || 0;
+  const notes = $('fDrvNotes').value.trim();
+
+  if (!name || baseSalary < 0) {
+    toast('Vui lòng điền họ tên lái xe và lương cơ bản hợp lệ!', 'error');
+    return;
+  }
+
+  const id = editingId || 'd_' + Date.now();
+  const driver = { id, name, phone, baseSalary, notes };
+
+  if (editingId) {
+    const idx = state.fleetDrivers.findIndex(x => x.id === editingId);
+    if (idx !== -1) {
+      state.fleetDrivers[idx] = { ...driver, _unsynced: true };
+    }
+  } else {
+    driver._unsynced = true;
+    state.fleetDrivers.push(driver);
+  }
+
+  saveData();
+  window.sendToCloud({ action: 'saveFleetDriver', driver });
+  closeModal();
+  renderFleetDrivers();
+  toast('Đã lưu thông tin tài xế!');
+}
+
+function deleteFleetDriver(id) {
+  if (!confirm('Bạn có chắc chắn muốn xóa lái xe này?')) return;
+  state.fleetDrivers = state.fleetDrivers.filter(x => x.id !== id);
+  saveData();
+  window.sendToCloud({ action: 'deleteFleetDriver', id });
+  renderFleetDrivers();
+  toast('Đã xóa lái xe!');
+}
+
+// TUYẾN ĐƯỜNG (ROUTES)
+function showAddRouteForm() {
+  openModal('Thêm tuyến đường mới', `
+    <div class="form-group">
+      <label>Tên tuyến đường vận chuyển *</label>
+      <input type="text" id="fRotName" placeholder="Ví dụ: Kho A - Nhà máy B">
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Điểm đi *</label>
+        <input type="text" id="fRotStart" placeholder="Nhập điểm đi">
+      </div>
+      <div>
+        <label>Điểm đến *</label>
+        <input type="text" id="fRotEnd" placeholder="Nhập điểm đến">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Khoảng cách tiêu chuẩn (Km) *</label>
+        <input type="number" id="fRotDist" value="100" min="1">
+      </div>
+      <div>
+        <label>Định mức dầu tuyến cố định (Lít)</label>
+        <input type="number" id="fRotFuel" value="0" placeholder="Nhập dầu định mức (nếu có)">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetRoute()"><i class="fas fa-save"></i> Lưu tuyến đường</button>
+    </div>
+  `);
+}
+
+function showEditRouteForm(id) {
+  const r = state.fleetRoutes.find(x => x.id === id);
+  if (!r) return;
+
+  openModal('Sửa tuyến đường', `
+    <div class="form-group">
+      <label>Tên tuyến đường vận chuyển *</label>
+      <input type="text" id="fRotName" value="${r.name}">
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Điểm đi *</label>
+        <input type="text" id="fRotStart" value="${r.startPoint}">
+      </div>
+      <div>
+        <label>Điểm đến *</label>
+        <input type="text" id="fRotEnd" value="${r.endPoint}">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Khoảng cách tiêu chuẩn (Km) *</label>
+        <input type="number" id="fRotDist" value="${r.distance}" min="1">
+      </div>
+      <div>
+        <label>Định mức dầu tuyến cố định (Lít)</label>
+        <input type="number" id="fRotFuel" value="${r.fuelNorm || 0}">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetRoute('${r.id}')"><i class="fas fa-save"></i> Cập nhật</button>
+    </div>
+  `);
+}
+
+function saveFleetRoute(editingId = null) {
+  const name = $('fRotName').value.trim();
+  const startPoint = $('fRotStart').value.trim();
+  const endPoint = $('fRotEnd').value.trim();
+  const distance = parseFloat($('fRotDist').value) || 0;
+  const fuelNorm = parseFloat($('fRotFuel').value) || 0;
+
+  if (!name || !startPoint || !endPoint || distance <= 0) {
+    toast('Vui lòng nhập đầy đủ thông tin bắt buộc!', 'error');
+    return;
+  }
+
+  const id = editingId || 'r_' + Date.now();
+  const route = { id, name, startPoint, endPoint, distance, fuelNorm };
+
+  if (editingId) {
+    const idx = state.fleetRoutes.findIndex(x => x.id === editingId);
+    if (idx !== -1) {
+      state.fleetRoutes[idx] = { ...route, _unsynced: true };
+    }
+  } else {
+    route._unsynced = true;
+    state.fleetRoutes.push(route);
+  }
+
+  saveData();
+  window.sendToCloud({ action: 'saveFleetRoute', route });
+  closeModal();
+  renderFleetRoutes();
+  toast('Đã lưu thông tin cung đường!');
+}
+
+function deleteFleetRoute(id) {
+  if (!confirm('Bạn có chắc chắn muốn xóa tuyến đường này?')) return;
+  state.fleetRoutes = state.fleetRoutes.filter(x => x.id !== id);
+  saveData();
+  window.sendToCloud({ action: 'deleteFleetRoute', id });
+  renderFleetRoutes();
+  toast('Đã xóa tuyến đường!');
+}
+
+// PHÂN CÔNG CHUYẾN ĐI & KÊ KHAI (TRIPS)
+function showAddTripForm() {
+  if (state.fleetVehicles.length === 0 || state.fleetDrivers.length === 0) {
+    toast('Vui lòng tạo danh sách Xe và Lái xe trước!', 'error');
+    return;
+  }
+
+  fleetTripInvoiceFile = null;
+
+  openModal('Ghi nhận Chuyến đi mới', `
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Ngày vận hành *</label>
+        <input type="date" id="fTripDate" value="${today()}">
+      </div>
+      <div>
+        <label>Xe chỉ định *</label>
+        <select id="fTripVehicleId">
+          ${getVehicleOptionsHtml('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Lái xe phân công *</label>
+        <select id="fTripDriverId">
+          ${getDriverOptionsHtml('')}
+        </select>
+      </div>
+      <div>
+        <label>Chọn cung đường mẫu</label>
+        <select id="fTripRouteId" onchange="onTripRouteTemplateChange()">
+          ${getRouteOptionsHtml('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Điểm đi thực tế *</label>
+        <input type="text" id="fTripStart" placeholder="Kho khởi hành">
+      </div>
+      <div>
+        <label>Điểm đến thực tế *</label>
+        <input type="text" id="fTripEnd" placeholder="Nơi trả hàng">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Số km thực tế đã đi *</label>
+        <input type="number" id="fTripKm" value="100" min="1">
+      </div>
+      <div>
+        <label>Số dầu thực tế đã đổ (Lít) *</label>
+        <input type="number" id="fTripFuelActual" step="0.1" value="15" min="0">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Phụ cấp chuyến (xin ứng/thanh toán) *</label>
+        <input type="number" id="fTripAllowance" value="100000" min="0" step="10000">
+      </div>
+      <div>
+        <label>Chi phí chuyến đi phát sinh (Cầu đường...)</label>
+        <input type="number" id="fTripExpense" value="0" min="0" step="10000">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Khoản cộng lương khác (+)</label>
+        <input type="number" id="fTripSalaryAdd" value="0" min="0" step="10000" placeholder="Thưởng chuyến, OT...">
+      </div>
+      <div>
+        <label>Khoản trừ lương khác (-)</label>
+        <input type="number" id="fTripSalarySub" value="0" min="0" step="10000" placeholder="Phạt dầu vượt định mức...">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Ảnh hóa đơn / Chứng từ chi phí</label>
+      <input type="file" id="fTripInvoice" accept="image/*" onchange="onTripInvoiceSelected(event)" style="border:none;padding:5px 0">
+      <div id="fTripInvoicePreview" style="margin-top:8px"></div>
+    </div>
+    <div class="form-group">
+      <label>Ghi chú chi tiết chuyến đi</label>
+      <input type="text" id="fTripNotes" placeholder="Nhập ghi chú thêm...">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetTrip()"><i class="fas fa-save"></i> Ghi nhận chuyến</button>
+    </div>
+  `);
+
+  window.onTripRouteTemplateChange = function() {
+    const routeId = $('fTripRouteId').value;
+    if (!routeId) return;
+    const r = state.fleetRoutes.find(x => x.id === routeId);
+    if (r) {
+      $('fTripStart').value = r.startPoint;
+      $('fTripEnd').value = r.endPoint;
+      $('fTripKm').value = r.distance;
+    }
+  };
+
+  window.onTripInvoiceSelected = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      fleetTripInvoiceFile = {
+        base64: event.target.result.split(',')[1],
+        mimeType: file.type,
+        name: file.name
+      };
+      $('fTripInvoicePreview').innerHTML = `<img src="${event.target.result}" style="max-height:100px;border-radius:8px;box-shadow:var(--shadow)">`;
+    };
+    reader.readAsDataURL(file);
+  };
+}
+
+function showEditTripForm(id) {
+  const t = state.fleetTrips.find(x => x.id === id);
+  if (!t) return;
+
+  fleetTripInvoiceFile = null;
+
+  openModal('Sửa thông tin chuyến đi', `
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Ngày vận hành *</label>
+        <input type="date" id="fTripDate" value="${t.date}">
+      </div>
+      <div>
+        <label>Xe chỉ định *</label>
+        <select id="fTripVehicleId">
+          ${getVehicleOptionsHtml(t.vehicleId)}
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Lái xe phân công *</label>
+        <select id="fTripDriverId">
+          ${getDriverOptionsHtml(t.driverId)}
+        </select>
+      </div>
+      <div>
+        <label>Chọn cung đường mẫu</label>
+        <select id="fTripRouteId" onchange="onTripRouteTemplateChange()">
+          ${getRouteOptionsHtml(t.routeId)}
+        </select>
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Điểm đi thực tế *</label>
+        <input type="text" id="fTripStart" value="${t.startPoint}">
+      </div>
+      <div>
+        <label>Điểm đến thực tế *</label>
+        <input type="text" id="fTripEnd" value="${t.endPoint}">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Số km thực tế đã đi *</label>
+        <input type="number" id="fTripKm" value="${t.kmActual}" min="1">
+      </div>
+      <div>
+        <label>Số dầu thực tế đã đổ (Lít) *</label>
+        <input type="number" id="fTripFuelActual" step="0.1" value="${t.fuelActual}">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Phụ cấp chuyến (₫) *</label>
+        <input type="number" id="fTripAllowance" value="${t.allowance || 0}">
+      </div>
+      <div>
+        <label>Chi phí chuyến đi phát sinh (₫)</label>
+        <input type="number" id="fTripExpense" value="${t.expense || 0}">
+      </div>
+    </div>
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div>
+        <label>Các khoản cộng khác (+) (₫)</label>
+        <input type="number" id="fTripSalaryAdd" value="${t.salaryAdd || 0}">
+      </div>
+      <div>
+        <label>Các khoản trừ khác (-) (₫)</label>
+        <input type="number" id="fTripSalarySub" value="${t.salarySub || 0}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Ảnh hóa đơn / Chứng từ chi phí</label>
+      <input type="file" id="fTripInvoice" accept="image/*" onchange="onTripInvoiceSelected(event)" style="border:none;padding:5px 0">
+      <div id="fTripInvoicePreview" style="margin-top:8px">
+        ${t.invoice ? `<img src="${t.invoice}" style="max-height:100px;border-radius:8px;box-shadow:var(--shadow)">` : ''}
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Ghi chú chi tiết chuyến đi</label>
+      <input type="text" id="fTripNotes" value="${t.notes || ''}">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Hủy</button>
+      <button class="btn btn-primary" onclick="saveFleetTrip('${t.id}')"><i class="fas fa-save"></i> Cập nhật</button>
+    </div>
+  `);
+
+  window.onTripRouteTemplateChange = function() {
+    const routeId = $('fTripRouteId').value;
+    if (!routeId) return;
+    const r = state.fleetRoutes.find(x => x.id === routeId);
+    if (r) {
+      $('fTripStart').value = r.startPoint;
+      $('fTripEnd').value = r.endPoint;
+      $('fTripKm').value = r.distance;
+    }
+  };
+
+  window.onTripInvoiceSelected = function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(event) {
+      fleetTripInvoiceFile = {
+        base64: event.target.result.split(',')[1],
+        mimeType: file.type,
+        name: file.name
+      };
+      $('fTripInvoicePreview').innerHTML = `<img src="${event.target.result}" style="max-height:100px;border-radius:8px;box-shadow:var(--shadow)">`;
+    };
+    reader.readAsDataURL(file);
+  };
+}
+
+function saveFleetTrip(editingId = null) {
+  const date = normalizeDate($('fTripDate').value);
+  const vehicleId = $('fTripVehicleId').value;
+  const driverId = $('fTripDriverId').value;
+  const routeId = $('fTripRouteId').value;
+  const startPoint = $('fTripStart').value.trim();
+  const endPoint = $('fTripEnd').value.trim();
+  const kmActual = parseFloat($('fTripKm').value) || 0;
+  const fuelActual = parseFloat($('fTripFuelActual').value) || 0;
+  const allowance = parseFloat($('fTripAllowance').value) || 0;
+  const expense = parseFloat($('fTripExpense').value) || 0;
+  const salaryAdd = parseFloat($('fTripSalaryAdd').value) || 0;
+  const salarySub = parseFloat($('fTripSalarySub').value) || 0;
+  const notes = $('fTripNotes').value.trim();
+
+  if (!vehicleId || !driverId || !startPoint || !endPoint || kmActual <= 0 || fuelActual < 0) {
+    toast('Vui lòng nhập đầy đủ các trường thông tin bắt buộc!', 'error');
+    return;
+  }
+
+  const id = editingId || 't_' + Date.now();
+  const oldTrip = editingId ? state.fleetTrips.find(x => x.id === editingId) : null;
+  const invoice = oldTrip ? oldTrip.invoice : '';
+
+  const trip = {
+    id, date, driverId, vehicleId, routeId, startPoint, endPoint,
+    kmActual, fuelActual, fuelNorm: 0, allowance, expense,
+    salaryAdd, salarySub, notes, invoice
+  };
+
+  // Tính ngay dầu định mức tại client để cập nhật giao diện lập tức
+  trip.fuelNorm = getTripFuelNorm(trip);
+
+  if (fleetTripInvoiceFile) {
+    trip.invoice = 'data:' + fleetTripInvoiceFile.mimeType + ';base64,' + fleetTripInvoiceFile.base64;
+  }
+
+  if (editingId) {
+    const idx = state.fleetTrips.findIndex(x => x.id === editingId);
+    if (idx !== -1) {
+      state.fleetTrips[idx] = { ...trip, _unsynced: true };
+    }
+  } else {
+    trip._unsynced = true;
+    state.fleetTrips.push(trip);
+  }
+
+  saveData();
+  
+  const payload = { action: 'saveFleetTrip', trip };
+  if (fleetTripInvoiceFile) {
+    payload.fileData = {
+      base64: fleetTripInvoiceFile.base64,
+      mimeType: fleetTripInvoiceFile.mimeType,
+      name: fleetTripInvoiceFile.name
+    };
+  }
+
+  window.sendToCloud(payload);
+  closeModal();
+  renderFleetTrips();
+  toast('Đã lưu thông tin chuyến đi!');
+}
+
+function deleteFleetTrip(id) {
+  if (!confirm('Bạn có chắc chắn muốn xóa chuyến đi này?')) return;
+  state.fleetTrips = state.fleetTrips.filter(x => x.id !== id);
+  saveData();
+  window.sendToCloud({ action: 'deleteFleetTrip', id });
+  renderFleetTrips();
+  toast('Đã xóa chuyến đi khỏi hệ thống!');
+}
+
+function showTripInvoiceZoom(id) {
+  const t = state.fleetTrips.find(x => x.id === id);
+  if (!t || !t.invoice) return;
+  
+  openModal('Hóa đơn chứng từ chi tiết', `
+    <div style="text-align:center;padding:10px">
+      <img src="${t.invoice}" style="max-width:100%;max-height:70vh;border-radius:12px;box-shadow:var(--shadow)">
+    </div>
+  `);
+}
+
+// -------------------------------------------------------------
+// TAB 5: BÁO CÁO & TÍNH LƯƠNG
+// -------------------------------------------------------------
+function toggleFleetReportView() {
+  const type = $('fltReportType').value;
+  document.querySelectorAll('.fleet-report-view').forEach(v => v.classList.remove('active'));
+  
+  if (type === 'salary') $('fleetReportSalaryView').classList.add('active');
+  if (type === 'fuel_summary') $('fleetReportFuelView').classList.add('active');
+  if (type === 'operational_summary') $('fleetReportOperationalView').classList.add('active');
+  
+  generateFleetReport();
+}
+
+function generateFleetReport() {
+  const type = $('fltReportType').value;
+  const start = $('fltReportStart').value;
+  const end = $('fltReportEnd').value;
+
+  if (!start || !end) {
+    toast('Vui lòng chọn phạm vi ngày để xuất báo cáo!', 'error');
+    return;
+  }
+
+  // Lọc danh sách chuyến đi theo kỳ chọn
+  const rangeTrips = state.fleetTrips.filter(t => t.date >= start && t.date <= end);
+
+  if (type === 'salary') {
+    renderFleetSalaryReport(rangeTrips);
+  } else if (type === 'fuel_summary') {
+    renderFleetFuelReport(rangeTrips);
+  } else if (type === 'operational_summary') {
+    renderFleetOperationalReport(rangeTrips);
+  }
+}
+
+// 1. VẼ BÁO CÁO LƯƠNG
+function renderFleetSalaryReport(trips) {
+  const tbody = $('fleetSalaryReportTable');
+  if (!tbody) return;
+
+  if (state.fleetDrivers.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px">Không có dữ liệu lái xe nào được thiết lập</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = state.fleetDrivers.map((driver, idx) => {
+    // Chuyến của lái xe
+    const drvTrips = trips.filter(t => t.driverId === driver.id);
+    const tripCount = drvTrips.length;
+    
+    // Tổng hợp phụ cấp chuyến, cộng khác, trừ phạt
+    const baseSalary = Number(driver.baseSalary) || 0;
+    const allowanceSum = drvTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+    const salaryAddSum = drvTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+    const salarySubSum = drvTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+    
+    // Tính lương thực lĩnh
+    const netSalary = baseSalary + allowanceSum + salaryAddSum - salarySubSum;
+
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><strong>${driver.name}</strong></td>
+        <td>${fmtThousands(baseSalary)} ₫</td>
+        <td><span class="badge badge-paid">${tripCount} chuyến</span></td>
+        <td style="color:var(--green)">${fmtThousands(allowanceSum)} ₫</td>
+        <td style="color:var(--green)">+${fmtThousands(salaryAddSum)} ₫</td>
+        <td style="color:var(--red)">-${fmtThousands(salarySubSum)} ₫</td>
+        <td style="color:var(--blue);font-weight:700;font-size:1.02rem">${fmtThousands(netSalary)} ₫</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// 2. VẼ BÁO CÁO TIÊU HAO NHIÊN LIỆU
+function renderFleetFuelReport(trips) {
+  const tbody = $('fleetFuelReportTable');
+  if (!tbody) return;
+
+  const groupBy = $('fltReportGroupBy').value;
+
+  // Gom nhóm dữ liệu
+  const groups = {};
+  trips.forEach(t => {
+    let key = '';
+    let name = '';
+    if (groupBy === 'date') {
+      key = t.date;
+      name = t.date;
+    } else if (groupBy === 'driver') {
+      key = t.driverId;
+      const drv = state.fleetDrivers.find(d => d.id === t.driverId);
+      name = drv ? drv.name : 'Chưa rõ';
+    } else if (groupBy === 'vehicle') {
+      key = t.vehicleId;
+      const veh = state.fleetVehicles.find(v => v.id === t.vehicleId);
+      name = veh ? veh.plate : 'Chưa rõ';
+    } else if (groupBy === 'route') {
+      key = t.routeId || (t.startPoint + ' ➔ ' + t.endPoint);
+      const rot = state.fleetRoutes.find(r => r.id === t.routeId);
+      name = rot ? rot.name : (t.startPoint + ' ➔ ' + t.endPoint);
+    }
+
+    if (!groups[key]) {
+      groups[key] = { name, tripsCount: 0, km: 0, fuelActual: 0, fuelNorm: 0 };
+    }
+    groups[key].tripsCount++;
+    groups[key].km += Number(t.kmActual) || 0;
+    groups[key].fuelActual += Number(t.fuelActual) || 0;
+    groups[key].fuelNorm += Number(t.fuelNorm) || getTripFuelNorm(t);
+  });
+
+  const list = Object.values(groups);
+  
+  tbody.innerHTML = `
+    <thead>
+      <tr>
+        <th>STT</th>
+        <th>${groupBy === 'date' ? 'Ngày vận hành' : groupBy === 'driver' ? 'Họ tên Lái xe' : groupBy === 'vehicle' ? 'Biển số xe' : 'Tuyến vận chuyển'}</th>
+        <th>Tổng số chuyến</th>
+        <th>Tổng Km thực tế</th>
+        <th>Nhiên liệu thực tế đổ</th>
+        <th>Nhiên liệu định mức</th>
+        <th>Hao hụt chênh lệch</th>
+        <th>Đánh giá kiểm soát</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${list.map((g, idx) => {
+        const diff = g.fuelActual - g.fuelNorm;
+        let warningHtml = '';
+        if (diff > 0) {
+          warningHtml = `<span class="badge-fuel-warning" style="font-size:0.8rem;padding:3px 6px"><i class="fas fa-exclamation-triangle"></i> Hao hụt +${diff.toFixed(1)}L</span>`;
+        } else {
+          warningHtml = `<span class="badge-fuel-safe" style="font-size:0.8rem;padding:3px 6px"><i class="fas fa-check"></i> Tiết kiệm -${Math.abs(diff).toFixed(1)}L</span>`;
+        }
+        return `
+          <tr>
+            <td>${idx + 1}</td>
+            <td><strong>${g.name}</strong></td>
+            <td><span class="badge badge-paid">${g.tripsCount} chuyến</span></td>
+            <td>${fmtThousands(g.km)} km</td>
+            <td>${g.fuelActual.toFixed(1)} L</td>
+            <td>${g.fuelNorm.toFixed(1)} L</td>
+            <td style="color:${diff > 0 ? 'var(--red)' : 'var(--green)'};font-weight:600">${diff > 0 ? '+' : ''}${diff.toFixed(1)} L</td>
+            <td>${warningHtml}</td>
+          </tr>
+        `;
+      }).join('') || `<tr><td colspan="8" style="text-align:center;color:var(--text2);padding:20px">Không có dữ liệu phù hợp trong kỳ</td></tr>`}
+    </tbody>
+  `;
+}
+
+// 3. VẼ BÁO CÁO VẬN HÀNH TỔNG HỢP
+function renderFleetOperationalReport(trips) {
+  const tbody = $('fleetOperationalReportTable');
+  if (!tbody) return;
+
+  const totalTrips = trips.length;
+  const totalKm = trips.reduce((sum, t) => sum + (Number(t.kmActual) || 0), 0);
+  const totalFuel = trips.reduce((sum, t) => sum + (Number(t.fuelActual) || 0), 0);
+  const totalFuelNorm = trips.reduce((sum, t) => sum + (Number(t.fuelNorm) || getTripFuelNorm(t)), 0);
+  const fuelDiff = totalFuel - totalFuelNorm;
+  
+  const totalAllowance = trips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+  const totalExpense = trips.reduce((sum, t) => sum + (Number(t.expense) || 0), 0);
+  const totalAdd = trips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+  const totalSub = trips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+
+  const dataRows = [
+    { name: 'Tổng số chuyến đi đã phân công', value: `${totalTrips} chuyến`, desc: 'Tổng số lượt xe xuất kho chỉ định.' },
+    { name: 'Tổng quãng đường vận chuyển tích lũy', value: `${fmtThousands(totalKm)} km`, desc: 'Tổng số km thực tế đi.' },
+    { name: 'Tổng dầu thực tế đã cấp', value: `${totalFuel.toFixed(1)} L`, desc: 'Tổng số lít dầu thực tế đổ trong kỳ.' },
+    { name: 'Tổng dầu định mức cho phép tiêu hao', value: `${totalFuelNorm.toFixed(1)} L`, desc: 'Hạn mức dầu tiêu hao tiêu chuẩn.' },
+    { 
+      name: 'Chênh lệch dầu kiểm soát', 
+      value: `<span style="color:${fuelDiff > 0 ? 'var(--red)' : 'var(--green)'};font-weight:700">${fuelDiff > 0 ? 'Vượt định mức +' : 'Tiết kiệm dầu -'}${Math.abs(fuelDiff).toFixed(1)} L</span>`, 
+      desc: fuelDiff > 0 ? '⚠️ Cần kiểm tra thiết bị hao hụt hoặc lái xe.' : '✔️ Lái xe tiết kiệm dầu đạt chỉ tiêu.' 
+    },
+    { name: 'Tổng phụ cấp chuyến tính lương', value: `${fmtThousands(totalAllowance)} ₫`, desc: 'Tổng chi phí hỗ trợ chuyến.' },
+    { name: 'Tổng chi phí dọc đường phát sinh', value: `${fmtThousands(totalExpense)} ₫`, desc: 'Tổng tiền vé cầu đường, sửa chữa phát sinh.' },
+    { name: 'Tổng các khoản cộng thưởng lương', value: `${fmtThousands(totalAdd)} ₫`, desc: 'Cộng lương thưởng, làm thêm giờ.' },
+    { name: 'Tổng các khoản trừ phạt lương', value: `${fmtThousands(totalSub)} ₫`, desc: 'Khấu trừ phạt dầu hoặc sự vụ phát sinh.' }
+  ];
+
+  tbody.innerHTML = dataRows.map((r, idx) => `
+    <tr>
+      <td>${idx + 1}</td>
+      <td><strong>${r.name}</strong></td>
+      <td style="font-size:1.05rem;font-weight:600">${r.value}</td>
+      <td style="color:var(--text2);font-size:0.85rem">${r.desc}</td>
+    </tr>
+  `).join('');
+}
+
+// -------------------------------------------------------------
+// XUẤT EXCEL
+// -------------------------------------------------------------
+function exportFleetReport() {
+  const type = $('fltReportType').value;
+  const start = $('fltReportStart').value;
+  const end = $('fltReportEnd').value;
+  
+  if (state.fleetTrips.length === 0) {
+    toast('Không có dữ liệu trong khoảng thời gian này để xuất!', 'error');
+    return;
+  }
+
+  const rangeTrips = state.fleetTrips.filter(t => t.date >= start && t.date <= end);
+  const wb = XLSX.utils.book_new();
+
+  if (type === 'salary') {
+    const salaryData = state.fleetDrivers.map((driver, idx) => {
+      const drvTrips = rangeTrips.filter(t => t.driverId === driver.id);
+      const baseSalary = Number(driver.baseSalary) || 0;
+      const allowanceSum = drvTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+      const salaryAddSum = drvTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+      const salarySubSum = drvTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+      const netSalary = baseSalary + allowanceSum + salaryAddSum - salarySubSum;
+
+      return {
+        'STT': idx + 1,
+        'Họ và tên lái xe': driver.name,
+        'Lương cơ bản (đ)': baseSalary,
+        'Số chuyến đi': drvTrips.length,
+        'Tổng phụ cấp chuyến (đ)': allowanceSum,
+        'Khoản cộng (+) (đ)': salaryAddSum,
+        'Khoản trừ (-) (đ)': salarySubSum,
+        'Lương thực nhận (đ)': netSalary
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(salaryData);
+    ws['!cols'] = [{ wch: 6 }, { wch: 22 }, { wch: 18 }, { wch: 10 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 20 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'BangLuong_LaiXe');
+    downloadExcel(wb, `BangLuong_LaiXe_${start}_to_${end}.xlsx`);
+
+  } else if (type === 'fuel_summary') {
+    const groupBy = $('fltReportGroupBy').value;
+    const groups = {};
+    rangeTrips.forEach(t => {
+      let key = '';
+      let name = '';
+      if (groupBy === 'date') { key = t.date; name = t.date; }
+      else if (groupBy === 'driver') {
+        key = t.driverId;
+        const drv = state.fleetDrivers.find(d => d.id === t.driverId);
+        name = drv ? drv.name : 'Chưa rõ';
+      } else if (groupBy === 'vehicle') {
+        key = t.vehicleId;
+        const veh = state.fleetVehicles.find(v => v.id === t.vehicleId);
+        name = veh ? veh.plate : 'Chưa rõ';
+      } else if (groupBy === 'route') {
+        key = t.routeId || (t.startPoint + ' ➔ ' + t.endPoint);
+        const rot = state.fleetRoutes.find(r => r.id === t.routeId);
+        name = rot ? rot.name : (t.startPoint + ' ➔ ' + t.endPoint);
+      }
+
+      if (!groups[key]) {
+        groups[key] = { name, tripsCount: 0, km: 0, fuelActual: 0, fuelNorm: 0 };
+      }
+      groups[key].tripsCount++;
+      groups[key].km += Number(t.kmActual) || 0;
+      groups[key].fuelActual += Number(t.fuelActual) || 0;
+      groups[key].fuelNorm += Number(t.fuelNorm) || getTripFuelNorm(t);
+    });
+
+    const fuelData = Object.values(groups).map((g, idx) => {
+      const diff = g.fuelActual - g.fuelNorm;
+      return {
+        'STT': idx + 1,
+        'Đối tượng nhóm': g.name,
+        'Số chuyến': g.tripsCount,
+        'Tổng Km thực tế': g.km,
+        'Nhiên liệu tiêu thụ (Lít)': g.fuelActual,
+        'Nhiên liệu định mức (Lít)': g.fuelNorm,
+        'Chênh lệch dầu thực tế (Lít)': diff,
+        'Đánh giá kiểm soát': diff > 0 ? '⚠️ Hao hụt' : '✔️ Tiết kiệm dầu'
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(fuelData);
+    ws['!cols'] = [{ wch: 6 }, { wch: 25 }, { wch: 10 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 16 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'TieuHao_NhienLieu');
+    downloadExcel(wb, `BaoCaoNhienLieu_${start}_to_${end}.xlsx`);
+
+  } else if (type === 'operational_summary') {
+    const totalTrips = rangeTrips.length;
+    const totalKm = rangeTrips.reduce((sum, t) => sum + (Number(t.kmActual) || 0), 0);
+    const totalFuel = rangeTrips.reduce((sum, t) => sum + (Number(t.fuelActual) || 0), 0);
+    const totalFuelNorm = rangeTrips.reduce((sum, t) => sum + (Number(t.fuelNorm) || getTripFuelNorm(t)), 0);
+    const fuelDiff = totalFuel - totalFuelNorm;
+    
+    const totalAllowance = rangeTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+    const totalExpense = rangeTrips.reduce((sum, t) => sum + (Number(t.expense) || 0), 0);
+    const totalAdd = rangeTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+    const totalSub = rangeTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+
+    const opData = [
+      { 'STT': 1, 'Chỉ số vận hành': 'Tổng số chuyến đi đã thực hiện', 'Giá trị tổng': totalTrips, 'Ghi chú chi tiết': 'Số lượng chuyến chỉ định' },
+      { 'STT': 2, 'Chỉ số vận hành': 'Tổng quãng đường vận hành (km)', 'Giá trị tổng': totalKm, 'Ghi chú chi tiết': 'Số km thực tế tích lũy' },
+      { 'STT': 3, 'Chỉ số vận hành': 'Tổng lượng nhiên liệu đã đổ (Lít)', 'Giá trị tổng': totalFuel, 'Ghi chú chi tiết': 'Tổng số dầu thực tế đã cấp' },
+      { 'STT': 4, 'Chỉ số vận hành': 'Tổng nhiên liệu định mức cho phép (Lít)', 'Giá trị tổng': totalFuelNorm, 'Ghi chú chi tiết': 'Hạn mức dầu tiêu chuẩn' },
+      { 'STT': 5, 'Chỉ số vận hành': 'Chênh lệch hao hụt nhiên liệu (Lít)', 'Giá trị tổng': fuelDiff, 'Ghi chú chi tiết': fuelDiff > 0 ? '⚠️ Hao hụt' : '✔️ Tiết kiệm dầu' },
+      { 'STT': 6, 'Chỉ số vận hành': 'Tổng chi phí phụ cấp chuyến đi (đ)', 'Giá trị tổng': totalAllowance, 'Ghi chú chi tiết': 'Phụ cấp chuyến' },
+      { 'STT': 7, 'Chỉ số vận hành': 'Tổng chi phí chuyến đi phát sinh (đ)', 'Giá trị tổng': totalExpense, 'Ghi chú chi tiết': 'Chi phí phát sinh dọc đường' },
+      { 'STT': 8, 'Chỉ số vận hành': 'Tổng các khoản cộng thưởng lái xe (đ)', 'Giá trị tổng': totalAdd, 'Ghi chú chi tiết': 'Cộng thưởng ngoài giờ' },
+      { 'STT': 9, 'Chỉ số vận hành': 'Tổng các khoản trừ phạt lái xe (đ)', 'Giá trị tổng': totalSub, 'Ghi chú chi tiết': 'Trừ phạt dầu vượt định mức hoặc vi phạm' }
+    ];
+
+    const ws = XLSX.utils.json_to_sheet(opData);
+    ws['!cols'] = [{ wch: 6 }, { wch: 35 }, { wch: 16 }, { wch: 30 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'BaoCao_VanHanh');
+    downloadExcel(wb, `BaoCaoVanHanh_TongHop_${start}_to_${end}.xlsx`);
+  }
+
+  toast('Đã kết xuất báo cáo Excel thành công!');
+}
+
+// -------------------------------------------------------------
+// PRINT PDF / IN BÁO CÁO
+// -------------------------------------------------------------
+function printFleetReport() {
+  const type = $('fltReportType').value;
+  const start = $('fltReportStart').value;
+  const end = $('fltReportEnd').value;
+  
+  if (!start || !end) {
+    toast('Vui lòng chọn thời gian báo cáo hợp lệ!', 'error');
+    return;
+  }
+
+  const rangeTrips = state.fleetTrips.filter(t => t.date >= start && t.date <= end);
+  
+  let reportTitle = '';
+  let tableHeaders = '';
+  let tableRows = '';
+
+  if (type === 'salary') {
+    reportTitle = 'BÁO CÁO TÍNH LƯƠNG LÁI XE CHI TIẾT';
+    tableHeaders = `
+      <tr>
+        <th>STT</th>
+        <th>Họ và tên lái xe</th>
+        <th>Lương cơ bản</th>
+        <th>Số chuyến đi</th>
+        <th>Tổng phụ cấp chuyến</th>
+        <th>Các khoản cộng (+)</th>
+        <th>Các khoản trừ (-)</th>
+        <th>Thực nhận lương</th>
+      </tr>
+    `;
+    tableRows = state.fleetDrivers.map((driver, idx) => {
+      const drvTrips = rangeTrips.filter(t => t.driverId === driver.id);
+      const baseSalary = Number(driver.baseSalary) || 0;
+      const allowanceSum = drvTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+      const salaryAddSum = drvTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+      const salarySubSum = drvTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+      const netSalary = baseSalary + allowanceSum + salaryAddSum - salarySubSum;
+
+      return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td><strong>${driver.name}</strong></td>
+          <td>${fmtThousands(baseSalary)} ₫</td>
+          <td>${drvTrips.length} chuyến</td>
+          <td>${fmtThousands(allowanceSum)} ₫</td>
+          <td>+${fmtThousands(salaryAddSum)} ₫</td>
+          <td>-${fmtThousands(salarySubSum)} ₫</td>
+          <td style="font-weight:bold">${fmtThousands(netSalary)} ₫</td>
+        </tr>
+      `;
+    }).join('');
+
+  } else if (type === 'fuel_summary') {
+    const groupBy = $('fltReportGroupBy').value;
+    const groupByText = groupBy === 'date' ? 'Ngày vận hành' : groupBy === 'driver' ? 'Họ tên Lái xe' : groupBy === 'vehicle' ? 'Biển số xe' : 'Tuyến vận chuyển';
+    
+    reportTitle = `BÁO CÁO TIÊU HAO NHIÊN LIỆU (NHÓM THEO: ${groupByText.toUpperCase()})`;
+    tableHeaders = `
+      <tr>
+        <th>STT</th>
+        <th>${groupByText}</th>
+        <th>Số chuyến đi</th>
+        <th>Tổng quãng đường (Km)</th>
+        <th>Dầu thực tế tiêu thụ</th>
+        <th>Dầu định mức quy định</th>
+        <th>Hao hụt chênh lệch (Lít)</th>
+        <th>Đánh giá kiểm soát</th>
+      </tr>
+    `;
+
+    const groups = {};
+    rangeTrips.forEach(t => {
+      let key = '';
+      let name = '';
+      if (groupBy === 'date') { key = t.date; name = t.date; }
+      else if (groupBy === 'driver') {
+        key = t.driverId;
+        const drv = state.fleetDrivers.find(d => d.id === t.driverId);
+        name = drv ? drv.name : 'Chưa rõ';
+      } else if (groupBy === 'vehicle') {
+        key = t.vehicleId;
+        const veh = state.fleetVehicles.find(v => v.id === t.vehicleId);
+        name = veh ? veh.plate : 'Chưa rõ';
+      } else if (groupBy === 'route') {
+        key = t.routeId || (t.startPoint + ' ➔ ' + t.endPoint);
+        const rot = state.fleetRoutes.find(r => r.id === t.routeId);
+        name = rot ? rot.name : (t.startPoint + ' ➔ ' + t.endPoint);
+      }
+
+      if (!groups[key]) {
+        groups[key] = { name, tripsCount: 0, km: 0, fuelActual: 0, fuelNorm: 0 };
+      }
+      groups[key].tripsCount++;
+      groups[key].km += Number(t.kmActual) || 0;
+      groups[key].fuelActual += Number(t.fuelActual) || 0;
+      groups[key].fuelNorm += Number(t.fuelNorm) || getTripFuelNorm(t);
+    });
+
+    tableRows = Object.values(groups).map((g, idx) => {
+      const diff = g.fuelActual - g.fuelNorm;
+      return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td><strong>${g.name}</strong></td>
+          <td>${g.tripsCount} chuyến</td>
+          <td>${fmtThousands(g.km)} km</td>
+          <td>${g.fuelActual.toFixed(1)} L</td>
+          <td>${g.fuelNorm.toFixed(1)} L</td>
+          <td style="color:${diff > 0 ? '#ff3b30' : '#34c759'};font-weight:bold">${diff > 0 ? '+' : ''}${diff.toFixed(1)} L</td>
+          <td>${diff > 0 ? '⚠️ Hao hụt' : '✔️ Tiết kiệm'}</td>
+        </tr>
+      `;
+    }).join('');
+
+  } else if (type === 'operational_summary') {
+    reportTitle = 'BÁO CÁO VẬN HÀNH VÀ CHI PHÍ TỔNG HỢP';
+    tableHeaders = `
+      <tr>
+        <th>STT</th>
+        <th>Chỉ số Vận hành & Chi phí</th>
+        <th>Giá trị tổng cộng</th>
+        <th>Nội dung chi tiết / Ghi chú</th>
+      </tr>
+    `;
+
+    const totalTrips = rangeTrips.length;
+    const totalKm = rangeTrips.reduce((sum, t) => sum + (Number(t.kmActual) || 0), 0);
+    const totalFuel = rangeTrips.reduce((sum, t) => sum + (Number(t.fuelActual) || 0), 0);
+    const totalFuelNorm = rangeTrips.reduce((sum, t) => sum + (Number(t.fuelNorm) || getTripFuelNorm(t)), 0);
+    const fuelDiff = totalFuel - totalFuelNorm;
+    
+    const totalAllowance = rangeTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+    const totalExpense = rangeTrips.reduce((sum, t) => sum + (Number(t.expense) || 0), 0);
+    const totalAdd = rangeTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+    const totalSub = rangeTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+
+    const rows = [
+      { name: 'Tổng số chuyến đi đã thực hiện', val: `${totalTrips} chuyến`, desc: 'Lượt xe xuất phát ghi nhận trong kỳ' },
+      { name: 'Tổng quãng đường vận chuyển thực tế', val: `${fmtThousands(totalKm)} km`, desc: 'Tích lũy km thực tế theo chuyến' },
+      { name: 'Tổng lượng nhiên liệu đã đổ', val: `${totalFuel.toFixed(1)} L`, desc: 'Số dầu thực tế đã đổ theo hóa đơn' },
+      { name: 'Tổng nhiên liệu định mức tiêu chuẩn', val: `${totalFuelNorm.toFixed(1)} L`, desc: 'Hạn mức nhiên liệu định mức cho phép' },
+      { name: 'Chênh lệch hao hụt nhiên liệu', val: `${fuelDiff > 0 ? 'Vượt hạn mức +' : 'Tiết kiệm -'}${Math.abs(fuelDiff).toFixed(1)} L`, desc: fuelDiff > 0 ? '⚠️ Hao hụt cần rà soát' : '✔️ Mức tiêu hao tối ưu đạt chuẩn' },
+      { name: 'Tổng chi phí phụ cấp chuyến đi', val: `${fmtThousands(totalAllowance)} ₫`, desc: 'Tổng chi phụ cấp chuyến của lái xe' },
+      { name: 'Tổng chi phí chuyến đi phát sinh', val: `${fmtThousands(totalExpense)} ₫`, desc: 'Phí cầu đường, sửa chữa bảo dưỡng dọc đường' },
+      { name: 'Tổng các khoản cộng lương lái xe', val: `${fmtThousands(totalAdd)} ₫`, desc: 'Cộng lương thưởng thêm ngoài giờ' },
+      { name: 'Tổng các khoản trừ phạt lương lái xe', val: `${fmtThousands(totalSub)} ₫`, desc: 'Trừ phạt hao hụt dầu hoặc lỗi sự vụ' }
+    ];
+
+    tableRows = rows.map((r, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td><strong>${r.name}</strong></td>
+        <td style="font-weight:bold">${r.val}</td>
+        <td>${r.desc}</td>
+      </tr>
+    `).join('');
+  }
+
+  // Khởi tạo cửa sổ in ẩn để người dùng Save as PDF qua Browser
+  const printWindow = window.open('', '_blank');
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>In Báo Cáo Đội Xe</title>
+        <style>
+          body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #333;
+            padding: 30px;
+            background: #fff;
+          }
+          .header {
+            text-align: center;
+            margin-bottom: 25px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 15px;
+          }
+          .header h1 {
+            margin: 0 0 5px 0;
+            font-size: 20px;
+            font-weight: bold;
+          }
+          .header p {
+            margin: 0;
+            font-size: 13px;
+            color: #666;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+          }
+          th, td {
+            border: 1px solid #333;
+            padding: 10px 12px;
+            text-align: left;
+            font-size: 12px;
+          }
+          th {
+            background-color: #f5f5f5;
+            font-weight: bold;
+          }
+          tr:nth-child(even) td {
+            background-color: #fafafa;
+          }
+          .footer {
+            margin-top: 40px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+          }
+          .footer-section {
+            text-align: center;
+            width: 200px;
+          }
+          .footer-section .sig {
+            margin-top: 60px;
+            font-weight: bold;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>HỆ THỐNG QUẢN LÝ TÀI CHÍNH NỘI BỘ PREMIUM</h1>
+          <h2>${reportTitle}</h2>
+          <p>Thời gian báo cáo: Từ ngày ${start} đến ngày ${end}</p>
+          <p>Ngày in báo cáo: ${new Date().toLocaleDateString('vi-VN')}</p>
+        </div>
+        
+        <table>
+          <thead>
+            ${tableHeaders}
+          </thead>
+          <tbody>
+            ${tableRows}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div class="footer-section">
+            <p>Người lập biểu báo</p>
+            <p class="sig">${state.currentUser ? state.currentUser.label : 'Kế toán viên'}</p>
+          </div>
+          <div class="footer-section">
+            <p>Ban kiểm soát</p>
+            <p class="sig">(Ký và ghi rõ họ tên)</p>
+          </div>
+          <div class="footer-section">
+            <p>Giám đốc phê duyệt</p>
+            <p class="sig">(Ký tên và đóng dấu)</p>
+          </div>
+        </div>
+
+        <script>
+          window.onload = function() {
+            window.print();
+            setTimeout(function() { window.close(); }, 500);
+          }
+        </script>
+      </body>
+    </html>
+  `);
+  printWindow.document.close();
+}
+
+// Hàm format số hàng ngàn tiện ích
+function fmtThousands(n) {
+  if (n === null || n === undefined) return '0';
+  return new Intl.NumberFormat('vi-VN').format(n);
+}
+
+// Đăng ký các hàm toàn cục cho thẻ HTML gọi
+window.renderFleetPage = renderFleetPage;
+window.renderFleetActiveTab = renderFleetActiveTab;
+window.saveFleetVehicle = saveFleetVehicle;
+window.deleteFleetVehicle = deleteFleetVehicle;
+window.saveFleetDriver = saveFleetDriver;
+window.deleteFleetDriver = deleteFleetDriver;
+window.saveFleetRoute = saveFleetRoute;
+window.deleteFleetRoute = deleteFleetRoute;
+window.saveFleetTrip = saveFleetTrip;
+window.deleteFleetTrip = deleteFleetTrip;
+window.showTripInvoiceZoom = showTripInvoiceZoom;
+window.toggleFleetReportView = toggleFleetReportView;
+window.generateFleetReport = generateFleetReport;
+window.initFleetModule = initFleetModule;
