@@ -49,6 +49,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const getNextSTT = () => state.entries.length > 0 ? Math.max(...state.entries.map(e => Number(e.stt) || 0)) + 1 : 1;
 const formatThousand = val => (val || val === 0) ? new Intl.NumberFormat('vi-VN').format(val) : '';
+const isVipTripValue = val => val === true || val === 1 || val === '1' || String(val).toLowerCase() === 'true';
 
 function getMonthKeyFromDate(dateStr) {
   const d = new Date(normalizeDate(dateStr));
@@ -601,6 +602,12 @@ async function loadData(silent = false) {
     if (state.debts) {
       state.debts.forEach(d => {
         d.dueDate = normalizeDate(d.dueDate);
+      });
+    }
+    if (state.fleetTrips) {
+      state.fleetTrips.forEach(t => {
+        t.date = normalizeDate(t.date);
+        t.isVip = isVipTripValue(t.isVip);
       });
     }
 
@@ -5222,7 +5229,7 @@ function saveFleetTrip(editingId = null) {
   const salaryAdd = parseFloat($('fTripSalaryAdd').value.replace(/\D/g, '')) || 0;
   const salarySub = parseFloat($('fTripSalarySub').value.replace(/\D/g, '')) || 0;
   const notes = $('fTripNotes').value.trim();
-  const isVip = $('fTripIsVip') ? $('fTripIsVip').checked : false;
+  const isVip = $('fTripIsVip') ? isVipTripValue($('fTripIsVip').checked) : false;
 
   if (!vehicleId || !driverId || !startPoint || !endPoint || kmActual <= 0 || fuelActual < 0) {
     toast('Vui lòng nhập đầy đủ các trường thông tin bắt buộc!', 'error');
@@ -5270,6 +5277,7 @@ function saveFleetTrip(editingId = null) {
   window.sendToCloud(payload);
   closeModal();
   renderFleetTrips();
+  generateFleetReport();
   toast('Đã lưu thông tin chuyến đi!');
 }
 
@@ -5279,6 +5287,7 @@ function deleteFleetTrip(id) {
   saveData();
   window.sendToCloud({ action: 'deleteFleetTrip', id });
   renderFleetTrips();
+  generateFleetReport();
   toast('Đã xóa chuyến đi khỏi hệ thống!');
 }
 
@@ -5359,7 +5368,7 @@ function renderFleetSalaryReport(trips) {
 
     let vipBonusTotal = 0;
     for (const date in tripsByDate) {
-      const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
+      const vipTripsInDay = tripsByDate[date].filter(t => isVipTripValue(t.isVip));
       const vipCount = vipTripsInDay.length;
       if (vipCount >= 2) vipBonusTotal += bonus2;
       if (vipCount >= 3) vipBonusTotal += bonus3;
@@ -5392,7 +5401,7 @@ function renderFleetSalaryReport(trips) {
         <td>${fmtThousands(baseSalary)} ₫</td>
         <td>
           <div style="font-weight:600;color:var(--green)">${fmtThousands(vipBonusTotal)} ₫</div>
-          <div style="font-size:0.75rem;color:var(--text2)">(${drvTrips.filter(t => t.isVip || t.isVip === 'true').length} chuyến VIP)</div>
+          <div style="font-size:0.75rem;color:var(--text2)">(${drvTrips.filter(t => isVipTripValue(t.isVip)).length} chuyến VIP)</div>
         </td>
         <td>${fmtThousands(monthlySupportTotal)} ₫</td>
         <td style="color:var(--blue);font-weight:700">${fmtThousands(netSalaryA)} ₫</td>
@@ -5557,7 +5566,7 @@ function exportFleetReport() {
 
       let vipBonusTotal = 0;
       for (const date in tripsByDate) {
-        const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
+        const vipTripsInDay = tripsByDate[date].filter(t => isVipTripValue(t.isVip));
         const vipCount = vipTripsInDay.length;
         if (vipCount >= 2) vipBonusTotal += bonus2;
         if (vipCount >= 3) vipBonusTotal += bonus3;
@@ -5722,7 +5731,7 @@ function printFleetReport() {
 
       let vipBonusTotal = 0;
       for (const date in tripsByDate) {
-        const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
+        const vipTripsInDay = tripsByDate[date].filter(t => isVipTripValue(t.isVip));
         const vipCount = vipTripsInDay.length;
         if (vipCount >= 2) vipBonusTotal += bonus2;
         if (vipCount >= 3) vipBonusTotal += bonus3;
@@ -5744,7 +5753,7 @@ function printFleetReport() {
           <td>${idx + 1}</td>
           <td><strong>${driver.name}</strong></td>
           <td>${fmtThousands(baseSalary)} ₫</td>
-          <td>${fmtThousands(vipBonusTotal)} ₫ (${drvTrips.filter(t => t.isVip || t.isVip === 'true').length} chuyến VIP)</td>
+          <td>${fmtThousands(vipBonusTotal)} ₫ (${drvTrips.filter(t => isVipTripValue(t.isVip)).length} chuyến VIP)</td>
           <td>${fmtThousands(allowanceVal)} ₫</td>
           <td style="font-weight:bold">${fmtThousands(netSalaryA)} ₫</td>
           <td style="color:var(--orange)">${fmtThousands(repairCostSum)} ₫</td>
@@ -6004,7 +6013,7 @@ function showDriverDailyDebtModal(driverId) {
     const bonus3 = getSettingNumber('vip_bonus_3', 300000);
     const bonus4 = getSettingNumber('vip_bonus_4', 300000);
     
-    const vipTrips = dayTrips.filter(t => t.isVip || t.isVip === 'true');
+    const vipTrips = dayTrips.filter(t => isVipTripValue(t.isVip));
     const vipCount = vipTrips.length;
     let dayVipBonus = 0;
     if (vipCount >= 2) dayVipBonus += bonus2;

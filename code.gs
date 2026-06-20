@@ -117,7 +117,7 @@ function doPost(e) {
 // -------------------------------------------------------------
 function initDatabase(ss) {
   var cache = CacheService.getScriptCache();
-  var cached = cache.get("db_initialized_v7"); // Nâng cấp phiên bản db_initialized lên v7
+  var cached = cache.get("db_initialized_v8"); // Cache theo phiên bản schema hiện tại
   if (cached === "true") {
     return; // Đã khởi tạo cấu trúc CSDL trực tuyến, bỏ qua để tăng tốc tối đa
   }
@@ -364,6 +364,8 @@ function getSheetData(sheet) {
       // Chuẩn hóa kiểu dữ liệu số và ngày tháng
       if (header === "amount" || header === "stt" || header === "settledAmount") {
         obj[header] = Number(val) || 0;
+      } else if (header === "isVip") {
+        obj[header] = val === true || val === "true" || val === "TRUE" || val === 1 || val === "1";
       } else if (val instanceof Date) {
         if (header === "date" || header === "dueDate" || header === "settledDate" || header === "paymentDate") {
           var yyyy = val.getFullYear();
@@ -1307,7 +1309,7 @@ function deleteFleetRoute(ss, id) {
 // -------------------------------------------------------------
 function saveFleetTrip(ss, trip, fileData) {
   var sheet = ss.getSheetByName("fleetTrips");
-  var headers = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice"];
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
   
   var idColIdx = headers.indexOf("id");
@@ -1339,6 +1341,8 @@ function saveFleetTrip(ss, trip, fileData) {
       rowValues.push("");
     } else if (["kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub"].includes(header)) {
       rowValues.push(Number(val) || 0);
+    } else if (header === "isVip") {
+      rowValues.push(val === true || val === "true" || val === "TRUE" || val === 1 || val === "1");
     } else {
       rowValues.push(val);
     }
