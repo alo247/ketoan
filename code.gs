@@ -19,7 +19,10 @@ function doGet(e) {
       fleetDrivers: getSheetData(ss.getSheetByName("fleetDrivers")),
       fleetRoutes: getSheetData(ss.getSheetByName("fleetRoutes")),
       fleetTrips: getSheetData(ss.getSheetByName("fleetTrips")),
-      systemSettings: getSheetData(ss.getSheetByName("systemSettings"))
+      systemSettings: getSheetData(ss.getSheetByName("systemSettings")),
+      fleetMonthlySupport: getSheetData(ss.getSheetByName("fleetMonthlySupport")),
+      fleetPayrollHistory: getSheetData(ss.getSheetByName("fleetPayrollHistory")),
+      fleetSalaryStatements: getSheetData(ss.getSheetByName("fleetSalaryStatements"))
     };
     
     return ContentService.createTextOutput(JSON.stringify(data))
@@ -56,7 +59,7 @@ function doPost(e) {
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
     } else if (action === "restoreAll") {
-      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts, payload.fleetVehicles, payload.fleetDrivers, payload.fleetRoutes, payload.fleetTrips, payload.systemSettings);
+      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts, payload.fleetVehicles, payload.fleetDrivers, payload.fleetRoutes, payload.fleetTrips, payload.systemSettings, payload.fleetMonthlySupport, payload.fleetPayrollHistory);
     } else if (action === "saveAdvance") {
       result = saveAdvance(ss, payload.advance, payload.fileData);
     } else if (action === "deleteAdvance") {
@@ -89,8 +92,14 @@ function doPost(e) {
       result = saveFleetTrip(ss, payload.trip, payload.fileData);
     } else if (action === "deleteFleetTrip") {
       result = deleteFleetTrip(ss, payload.id);
+    } else if (action === "saveFleetMonthlySupport") {
+      result = saveFleetMonthlySupport(ss, payload.rule);
+    } else if (action === "saveFleetPayrollHistory") {
+      result = saveFleetPayrollHistory(ss, payload.snapshot);
     } else if (action === "saveSystemSettings") {
       result = saveSystemSettings(ss, payload.settings);
+    } else if (action === "saveFleetSalaryStatement") {
+      result = saveFleetSalaryStatement(ss, payload.statement);
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -278,8 +287,63 @@ function initDatabase(ss) {
     settingsSheet.appendRow(["vip_bonus_4", "300000", "Thưởng chuyến VIP thứ 4 trong ngày"]);
   }
 
+  // 13. Tạo hoặc kiểm tra sheet 'fleetMonthlySupport' (Hỗ trợ lái xe theo tháng)
+  var fMonthlySupportSheet = ss.getSheetByName("fleetMonthlySupport");
+  var fMonthlySupportHeaders = ["id", "driverId", "monthKey", "amount", "status", "approvedBy", "approvedAt"];
+  if (!fMonthlySupportSheet) {
+    fMonthlySupportSheet = ss.insertSheet("fleetMonthlySupport");
+    fMonthlySupportSheet.appendRow(fMonthlySupportHeaders);
+    fMonthlySupportSheet.getRange(1, 1, 1, fMonthlySupportHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+  } else {
+    var currentHeaders = fMonthlySupportSheet.getRange(1, 1, 1, fMonthlySupportSheet.getLastColumn()).getValues()[0];
+    for (var i = 0; i < fMonthlySupportHeaders.length; i++) {
+      var header = fMonthlySupportHeaders[i];
+      if (currentHeaders.indexOf(header) === -1) {
+        fMonthlySupportSheet.getRange(1, fMonthlySupportSheet.getLastColumn() + 1).setValue(header)
+          .setFontWeight("bold").setBackground("#d9ead3");
+      }
+    }
+  }
+
+  // 14. Tạo hoặc kiểm tra sheet 'fleetPayrollHistory' (Lưu lịch sử quyết toán lương)
+  var fPayrollHistorySheet = ss.getSheetByName("fleetPayrollHistory");
+  var fPayrollHistoryHeaders = ["id", "monthKey", "driverId", "baseSalary", "supportAmount", "approved", "approvedBy", "approvedAt", "createdAt"];
+  if (!fPayrollHistorySheet) {
+    fPayrollHistorySheet = ss.insertSheet("fleetPayrollHistory");
+    fPayrollHistorySheet.appendRow(fPayrollHistoryHeaders);
+    fPayrollHistorySheet.getRange(1, 1, 1, fPayrollHistoryHeaders.length).setFontWeight("bold").setBackground("#fce5cd");
+  } else {
+    var currentHeaders = fPayrollHistorySheet.getRange(1, 1, 1, fPayrollHistorySheet.getLastColumn()).getValues()[0];
+    for (var i = 0; i < fPayrollHistoryHeaders.length; i++) {
+      var header = fPayrollHistoryHeaders[i];
+      if (currentHeaders.indexOf(header) === -1) {
+        fPayrollHistorySheet.getRange(1, fPayrollHistorySheet.getLastColumn() + 1).setValue(header)
+          .setFontWeight("bold").setBackground("#fce5cd");
+      }
+    }
+  }
+
+  // 15. Tạo hoặc kiểm tra sheet 'fleetSalaryStatements' (Bảng quyết toán lương đã phê duyệt)
+  var salaryStatementsSheet = ss.getSheetByName("fleetSalaryStatements");
+  var salaryStatementsHeaders = ["id", "month", "driverId", "driverName", "baseSalary", "vipBonus", "allowance", "repairCost", "netSalaryA", "totalSettlementB", "status", "approvedBy", "approvedAt", "note"];
+  if (!salaryStatementsSheet) {
+    salaryStatementsSheet = ss.insertSheet("fleetSalaryStatements");
+    salaryStatementsSheet.appendRow(salaryStatementsHeaders);
+    salaryStatementsSheet.getRange(1, 1, 1, salaryStatementsHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+  } else {
+    // Tự động nâng cấp cột
+    var currentHeaders = salaryStatementsSheet.getRange(1, 1, 1, salaryStatementsSheet.getLastColumn()).getValues()[0];
+    for (var i = 0; i < salaryStatementsHeaders.length; i++) {
+      var header = salaryStatementsHeaders[i];
+      if (currentHeaders.indexOf(header) === -1) {
+        salaryStatementsSheet.getRange(1, salaryStatementsSheet.getLastColumn() + 1).setValue(header)
+          .setFontWeight("bold").setBackground("#d9ead3");
+      }
+    }
+  }
+
   // Lưu trạng thái đã khởi tạo cấu trúc CSDL vào Cache trong 6 giờ (21600 giây)
-  cache.put("db_initialized_v7", "true", 21600);
+  cache.put("db_initialized_v8", "true", 21600);
 }
 
 // -------------------------------------------------------------
@@ -693,7 +757,7 @@ function getOrCreateFolder(folderName) {
 // -------------------------------------------------------------
 // ĐỒNG BỘ TOÀN BỘ CƠ SỞ DỮ LIỆU (RESTORE ALL)
 // -------------------------------------------------------------
-function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, accounts, fleetVehicles, fleetDrivers, fleetRoutes, fleetTrips, systemSettings) {
+function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, accounts, fleetVehicles, fleetDrivers, fleetRoutes, fleetTrips, systemSettings, fleetMonthlySupport, fleetPayrollHistory) {
   try {
     // 1. Đồng bộ Entries (Nhật Ký Chung)
     if (entries && Array.isArray(entries)) {
@@ -969,7 +1033,59 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
       }
     }
 
-    // 12. Đồng bộ System Settings
+    // 12. Đồng bộ Fleet Monthly Support
+    if (fleetMonthlySupport && Array.isArray(fleetMonthlySupport)) {
+      var supportSheet = ss.getSheetByName("fleetMonthlySupport");
+      if (supportSheet.getLastRow() >= 2) {
+        supportSheet.deleteRows(2, supportSheet.getLastRow() - 1);
+      }
+      var supportHeaders = ["id", "driverId", "monthKey", "amount", "status", "approvedBy", "approvedAt"];
+      var supportRows = [];
+      for (var ms = 0; ms < fleetMonthlySupport.length; ms++) {
+        var support = fleetMonthlySupport[ms];
+        supportRows.push([
+          support.id || "",
+          support.driverId || "",
+          support.monthKey || "",
+          Number(support.amount) || 0,
+          support.status || "pending",
+          support.approvedBy || "",
+          support.approvedAt || ""
+        ]);
+      }
+      if (supportRows.length > 0) {
+        supportSheet.getRange(2, 1, supportRows.length, supportHeaders.length).setValues(supportRows);
+      }
+    }
+
+    // 13. Đồng bộ Fleet Payroll History
+    if (fleetPayrollHistory && Array.isArray(fleetPayrollHistory)) {
+      var payrollSheet = ss.getSheetByName("fleetPayrollHistory");
+      if (payrollSheet.getLastRow() >= 2) {
+        payrollSheet.deleteRows(2, payrollSheet.getLastRow() - 1);
+      }
+      var payrollHeaders = ["id", "monthKey", "driverId", "baseSalary", "supportAmount", "approved", "approvedBy", "approvedAt", "createdAt"];
+      var payrollRows = [];
+      for (var ph = 0; ph < fleetPayrollHistory.length; ph++) {
+        var snapshot = fleetPayrollHistory[ph];
+        payrollRows.push([
+          snapshot.id || "",
+          snapshot.monthKey || "",
+          snapshot.driverId || "",
+          Number(snapshot.baseSalary) || 0,
+          Number(snapshot.supportAmount) || 0,
+          snapshot.approved === true || snapshot.approved === "true" ? true : false,
+          snapshot.approvedBy || "",
+          snapshot.approvedAt || "",
+          snapshot.createdAt || ""
+        ]);
+      }
+      if (payrollRows.length > 0) {
+        payrollSheet.getRange(2, 1, payrollRows.length, payrollHeaders.length).setValues(payrollRows);
+      }
+    }
+
+    // 14. Đồng bộ System Settings
     if (systemSettings && Array.isArray(systemSettings)) {
       var setSheet = ss.getSheetByName("systemSettings");
       if (setSheet.getLastRow() >= 2) {
@@ -1095,7 +1211,7 @@ function deleteFleetVehicle(ss, id) {
 // -------------------------------------------------------------
 function saveFleetDriver(ss, driver) {
   var sheet = ss.getSheetByName("fleetDrivers");
-  var headers = ["id", "name", "phone", "baseSalary", "notes"];
+  var headers = ["id", "name", "phone", "baseSalary", "notes", "allowance"];
   var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
   
   var idColIdx = headers.indexOf("id");
@@ -1106,7 +1222,8 @@ function saveFleetDriver(ss, driver) {
     driver.name || "",
     driver.phone || "",
     Number(driver.baseSalary) || 0,
-    driver.notes || ""
+    driver.notes || "",
+    Number(driver.allowance) || 0
   ];
   
   var targetRow = -1;
@@ -1253,6 +1370,76 @@ function deleteFleetTrip(ss, id) {
     }
   }
   return { success: false, error: "Chuyến đi không tồn tại trên Cloud!" };
+}
+
+function saveFleetMonthlySupport(ss, rule) {
+  var sheet = ss.getSheetByName("fleetMonthlySupport");
+  var headers = ["id", "driverId", "monthKey", "amount", "status", "approvedBy", "approvedAt"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong fleetMonthlySupport!" };
+
+  var rowValues = [
+    rule.id || "",
+    rule.driverId || "",
+    rule.monthKey || "",
+    Number(rule.amount) || 0,
+    rule.status || "pending",
+    rule.approvedBy || "",
+    rule.approvedAt || ""
+  ];
+
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === rule.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
+}
+
+function saveFleetPayrollHistory(ss, snapshot) {
+  var sheet = ss.getSheetByName("fleetPayrollHistory");
+  var headers = ["id", "monthKey", "driverId", "baseSalary", "supportAmount", "approved", "approvedBy", "approvedAt", "createdAt"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+
+  var idColIdx = headers.indexOf("id");
+  if (idColIdx === -1) return { success: false, error: "Không tìm thấy cột 'id' trong fleetPayrollHistory!" };
+
+  var rowValues = [
+    snapshot.id || "",
+    snapshot.monthKey || "",
+    snapshot.driverId || "",
+    Number(snapshot.baseSalary) || 0,
+    Number(snapshot.supportAmount) || 0,
+    snapshot.approved === true || snapshot.approved === "true" ? true : false,
+    snapshot.approvedBy || "",
+    snapshot.approvedAt || "",
+    snapshot.createdAt || ""
+  ];
+
+  var targetRow = -1;
+  for (var r = 1; r < data.length; r++) {
+    if (data[r][idColIdx] === snapshot.id) {
+      targetRow = r + 1;
+      break;
+    }
+  }
+
+  if (targetRow !== -1) {
+    sheet.getRange(targetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.appendRow(rowValues);
+  }
+  return { success: true };
 }
 
 function saveSystemSettings(ss, settings) {

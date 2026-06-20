@@ -28,6 +28,8 @@ let state = {
   fleetDrivers: [],
   fleetRoutes: [],
   fleetTrips: [],
+  fleetMonthlySupport: [],
+  fleetPayrollHistory: [],
   systemSettings: [],
   chartMonthly: null,
   chartRatio: null,
@@ -47,6 +49,31 @@ const today = () => new Date().toISOString().slice(0, 10);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const getNextSTT = () => state.entries.length > 0 ? Math.max(...state.entries.map(e => Number(e.stt) || 0)) + 1 : 1;
 const formatThousand = val => (val || val === 0) ? new Intl.NumberFormat('vi-VN').format(val) : '';
+
+function getMonthKeyFromDate(dateStr) {
+  const d = new Date(normalizeDate(dateStr));
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getCurrentMonthKey() {
+  return getMonthKeyFromDate(today());
+}
+
+function formatMonthLabel(monthKey) {
+  if (!monthKey) return '';
+  const [year, month] = monthKey.split('-');
+  return `${month}/${year}`;
+}
+
+function getMonthlySupportRule(driverId, monthKey) {
+  return state.fleetMonthlySupport.find(rule => rule.driverId === driverId && rule.monthKey === monthKey);
+}
+
+function getApprovedMonthlySupportAmount(driverId, monthKey) {
+  const rule = getMonthlySupportRule(driverId, monthKey);
+  if (rule && rule.status === 'approved') return Number(rule.amount) || 0;
+  return 0;
+}
 
 function normalizeDate(d) {
   if (!d) return today();
@@ -183,6 +210,12 @@ window.sendToCloud = async function (payload) {
         if (idx !== -1) {
           delete state.fleetDrivers[idx]._unsynced;
         }
+      } else if (payload.action === 'saveFleetMonthlySupport' && payload.rule) {
+        const ruleId = payload.rule.id;
+        const idx = state.fleetMonthlySupport.findIndex(r => r.id === ruleId);
+        if (idx !== -1) {
+          delete state.fleetMonthlySupport[idx]._unsynced;
+        }
       } else if (payload.action === 'saveFleetRoute' && payload.route) {
         const rotId = payload.route.id;
         const idx = state.fleetRoutes.findIndex(r => r.id === rotId);
@@ -210,6 +243,9 @@ window.sendToCloud = async function (payload) {
         });
         state.fleetDrivers.forEach(d => {
           delete d._unsynced;
+        });
+        state.fleetMonthlySupport.forEach(r => {
+          delete r._unsynced;
         });
         state.fleetRoutes.forEach(r => {
           delete r._unsynced;
@@ -425,6 +461,36 @@ async function loadData(silent = false) {
       });
       state.fleetDrivers = mergedFleetDrivers;
 
+      // Thuật toán gộp cho Fleet Monthly Support
+      const serverFleetMonthlySupport = data.fleetMonthlySupport || [];
+      const localFleetMonthlySupport = JSON.parse(localStorage.getItem('tc_fleet_monthly_support') || '[]');
+      const mergedFleetMonthlySupport = [...serverFleetMonthlySupport];
+      localFleetMonthlySupport.forEach(le => {
+        const se = serverFleetMonthlySupport.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) mergedFleetMonthlySupport.push(le);
+        } else if (le._unsynced) {
+          const idx = mergedFleetMonthlySupport.findIndex(x => x.id === se.id);
+          if (idx !== -1) mergedFleetMonthlySupport[idx] = { ...mergedFleetMonthlySupport[idx], ...le };
+        }
+      });
+      state.fleetMonthlySupport = mergedFleetMonthlySupport;
+
+      // Thuật toán gộp cho Fleet Payroll History
+      const serverFleetPayrollHistory = data.fleetPayrollHistory || [];
+      const localFleetPayrollHistory = JSON.parse(localStorage.getItem('tc_fleet_payroll_history') || '[]');
+      const mergedFleetPayrollHistory = [...serverFleetPayrollHistory];
+      localFleetPayrollHistory.forEach(le => {
+        const se = serverFleetPayrollHistory.find(x => x.id === le.id);
+        if (!se) {
+          if (le._unsynced) mergedFleetPayrollHistory.push(le);
+        } else if (le._unsynced) {
+          const idx = mergedFleetPayrollHistory.findIndex(x => x.id === se.id);
+          if (idx !== -1) mergedFleetPayrollHistory[idx] = { ...mergedFleetPayrollHistory[idx], ...le };
+        }
+      });
+      state.fleetPayrollHistory = mergedFleetPayrollHistory;
+
       // Thuật toán gộp cho Fleet Routes
       const serverFleetRoutes = data.fleetRoutes || [];
       const localFleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
@@ -495,6 +561,8 @@ async function loadData(silent = false) {
       state.accounts = window.getAccounts ? window.getAccounts() : [];
       state.fleetVehicles = JSON.parse(localStorage.getItem('tc_fleet_vehicles') || '[]');
       state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
+      state.fleetMonthlySupport = JSON.parse(localStorage.getItem('tc_fleet_monthly_support') || '[]');
+      state.fleetPayrollHistory = JSON.parse(localStorage.getItem('tc_fleet_payroll_history') || '[]');
       state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
       state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
       state.systemSettings = JSON.parse(localStorage.getItem('tc_system_settings') || '[]');
@@ -509,6 +577,8 @@ async function loadData(silent = false) {
     state.accounts = window.getAccounts ? window.getAccounts() : [];
     state.fleetVehicles = JSON.parse(localStorage.getItem('tc_fleet_vehicles') || '[]');
     state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
+    state.fleetMonthlySupport = JSON.parse(localStorage.getItem('tc_fleet_monthly_support') || '[]');
+    state.fleetPayrollHistory = JSON.parse(localStorage.getItem('tc_fleet_payroll_history') || '[]');
     state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
     state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
     state.systemSettings = JSON.parse(localStorage.getItem('tc_system_settings') || '[]');
@@ -587,6 +657,8 @@ function saveData() {
   localStorage.setItem('tc_fleet_drivers', JSON.stringify(state.fleetDrivers));
   localStorage.setItem('tc_fleet_routes', JSON.stringify(state.fleetRoutes));
   localStorage.setItem('tc_fleet_trips', JSON.stringify(state.fleetTrips));
+  localStorage.setItem('tc_fleet_monthly_support', JSON.stringify(state.fleetMonthlySupport));
+  localStorage.setItem('tc_fleet_payroll_history', JSON.stringify(state.fleetPayrollHistory));
   localStorage.setItem('tc_system_settings', JSON.stringify(state.systemSettings));
   if (window.saveAccounts) window.saveAccounts(state.accounts);
 }
@@ -2189,8 +2261,20 @@ function renderFleetSalarySettings() {
   
   const tbody = $('fleetDriversSettingsTable');
   if (!tbody) return;
+
+  const monthFilter = $('fleetSalaryMonthFilter');
+  if (monthFilter && !monthFilter.value) {
+    monthFilter.value = getCurrentMonthKey();
+  }
+  const monthKey = monthFilter?.value || getCurrentMonthKey();
   
   tbody.innerHTML = state.fleetDrivers.map(d => {
+    const rule = getMonthlySupportRule(d.id, monthKey);
+    const currentSupport = rule?.amount ?? d.allowance || 0;
+    const canApprove = hasPermission('approve');
+    const approvalLabel = rule?.status === 'approved' ? 'Đã duyệt' : 'Chờ duyệt';
+    const approvalClass = rule?.status === 'approved' ? 'badge-paid' : 'badge-pending';
+
     return `
       <tr data-driver-id="${d.id}">
         <td><strong>${d.name}</strong></td>
@@ -2198,20 +2282,56 @@ function renderFleetSalarySettings() {
           <input type="text" class="drv-salary-input text-amount" value="${formatThousand(d.baseSalary || 0)}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
         </td>
         <td>
-          <input type="text" class="drv-allowance-input text-amount" value="${formatThousand(d.allowance || 0)}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
+          <input type="text" class="drv-allowance-input text-amount" value="${formatThousand(currentSupport)}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
         </td>
         <td>
           <span style="font-size:0.82rem;color:var(--text2)">${d.notes || '-'}</span>
         </td>
+        <td>
+          <span class="${approvalClass}" style="font-size:0.78rem;padding:4px 8px;border-radius:999px">${approvalLabel}</span>
+        </td>
+        <td>
+          ${canApprove ? `<button type="button" class="btn btn-sm btn-primary drv-approve-btn" data-driver-id="${d.id}"><i class="fas fa-check"></i> ${rule?.status === 'approved' ? 'Bỏ duyệt' : 'Duyệt'}</button>` : '<span style="font-size:0.78rem;color:var(--text2)">Chỉ Ban kiểm soát</span>'}
+        </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Chưa có lái xe</td></tr>';
+  }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:20px">Chưa có lái xe</td></tr>';
 
   // Đăng ký sự kiện định dạng hàng nghìn cho các ô trong bảng
   tbody.querySelectorAll('.text-amount').forEach(el => {
     el.addEventListener('input', function() {
       const clean = this.value.replace(/\D/g, '');
       this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+    });
+  });
+
+  tbody.querySelectorAll('.drv-approve-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const drvId = this.dataset.driverId;
+      const monthKey = $('fleetSalaryMonthFilter')?.value || getCurrentMonthKey();
+      const existing = getMonthlySupportRule(drvId, monthKey);
+      if (existing) {
+        existing.status = existing.status === 'approved' ? 'pending' : 'approved';
+        existing.approvedBy = existing.status === 'approved' ? state.currentUser.username : '';
+        existing.approvedAt = existing.status === 'approved' ? new Date().toISOString() : '';
+        existing._unsynced = true;
+      } else {
+        state.fleetMonthlySupport.push({
+          id: uid(),
+          driverId: drvId,
+          monthKey,
+          amount: 0,
+          status: 'approved',
+          approvedBy: state.currentUser.username,
+          approvedAt: new Date().toISOString(),
+          _unsynced: true
+        });
+      }
+      saveData();
+      window.sendToCloud({ action: 'saveFleetMonthlySupport', rule: getMonthlySupportRule(drvId, monthKey) || state.fleetMonthlySupport[state.fleetMonthlySupport.length - 1] });
+      writeAuditLog('Phê duyệt hỗ trợ lái xe', `Phê duyệt hỗ trợ tháng ${formatMonthLabel(monthKey)} cho lái xe ${state.fleetDrivers.find(d => d.id === drvId)?.name || drvId}`);
+      renderFleetSalarySettings();
+      toast('Đã cập nhật trạng thái phê duyệt hỗ trợ lái xe!', 'success');
     });
   });
 }
@@ -2222,6 +2342,7 @@ function saveFleetSalarySettings() {
   const vip2 = parseFloat($('sVipBonus2').value.replace(/\D/g, '')) || 0;
   const vip3 = parseFloat($('sVipBonus3').value.replace(/\D/g, '')) || 0;
   const vip4 = parseFloat($('sVipBonus4').value.replace(/\D/g, '')) || 0;
+  const monthKey = $('fleetSalaryMonthFilter')?.value || getCurrentMonthKey();
   
   const settings = {
     vip_bonus_2: vip2,
@@ -2250,14 +2371,53 @@ function saveFleetSalarySettings() {
       state.fleetDrivers[idx].baseSalary = salary;
       state.fleetDrivers[idx].allowance = allowance;
       state.fleetDrivers[idx]._unsynced = true;
-      
       window.sendToCloud({ action: 'saveFleetDriver', driver: state.fleetDrivers[idx] });
     }
+
+    const rule = getMonthlySupportRule(drvId, monthKey) || {
+      id: uid(),
+      driverId: drvId,
+      monthKey,
+      amount: 0,
+      status: 'pending',
+      approvedBy: '',
+      approvedAt: '',
+      _unsynced: true
+    };
+    rule.amount = allowance;
+    rule.monthKey = monthKey;
+    rule.status = rule.status || 'pending';
+    rule._unsynced = true;
+    if (!state.fleetMonthlySupport.some(r => r.id === rule.id)) {
+      state.fleetMonthlySupport.push(rule);
+    }
+    window.sendToCloud({ action: 'saveFleetMonthlySupport', rule });
+
+    const existingSnapshot = state.fleetPayrollHistory.find(s => s.monthKey === monthKey && s.driverId === drvId);
+    const payrollSnapshot = {
+      id: existingSnapshot?.id || uid(),
+      monthKey,
+      driverId: drvId,
+      baseSalary: salary,
+      supportAmount: allowance,
+      approved: rule.status === 'approved',
+      approvedBy: rule.approvedBy || '',
+      approvedAt: rule.approvedAt || '',
+      createdAt: existingSnapshot?.createdAt || new Date().toISOString(),
+      _unsynced: true
+    };
+    const existingSnapshotIndex = state.fleetPayrollHistory.findIndex(s => s.monthKey === monthKey && s.driverId === drvId);
+    if (existingSnapshotIndex !== -1) {
+      state.fleetPayrollHistory[existingSnapshotIndex] = payrollSnapshot;
+    } else {
+      state.fleetPayrollHistory.push(payrollSnapshot);
+    }
+    window.sendToCloud({ action: 'saveFleetPayrollHistory', snapshot: payrollSnapshot });
   });
   
   saveData();
   window.sendToCloud({ action: 'saveSystemSettings', settings });
-  writeAuditLog('Cập nhật cấu hình Đội xe', `Cập nhật cấu hình thưởng VIP và bảng lương của lái xe`);
+  writeAuditLog('Cập nhật cấu hình Đội xe', `Cập nhật lương cơ bản, hỗ trợ tháng ${formatMonthLabel(monthKey)} và lưu bảng quyết toán`);
   toast('Đã lưu cấu hình Đội xe và đồng bộ đám mây thành công!');
   renderSettings();
 }
@@ -4114,6 +4274,7 @@ function initFleetModule() {
   $('btnAddFleetVehicle')?.addEventListener('click', showAddVehicleForm);
   $('btnAddFleetDriver')?.addEventListener('click', showAddDriverForm);
   $('btnAddFleetRoute')?.addEventListener('click', showAddRouteForm);
+  $('btnSaveFleetSalarySettings')?.addEventListener('click', saveFleetSalarySettings);
   
   // Bộ lọc chuyến đi
   $('tripSearchInput')?.addEventListener('input', () => { fleetTripsPage = 1; renderFleetTrips(); });
@@ -5195,25 +5356,28 @@ function renderFleetSalaryReport(trips) {
 
     let vipBonusTotal = 0;
     for (const date in tripsByDate) {
-      // Đếm số chuyến VIP trong ngày này
       const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
       const vipCount = vipTripsInDay.length;
-      
-      if (vipCount >= 2) vipBonusTotal += bonus2; // chuyến thứ hai
-      if (vipCount >= 3) vipBonusTotal += bonus3; // chuyến thứ ba
-      if (vipCount >= 4) vipBonusTotal += (vipCount - 3) * bonus4; // chuyến thứ tư trở đi
+      if (vipCount >= 2) vipBonusTotal += bonus2;
+      if (vipCount >= 3) vipBonusTotal += bonus3;
+      if (vipCount >= 4) vipBonusTotal += (vipCount - 3) * bonus4;
     }
 
+    const monthsInRange = [...new Set(drvTrips.map(t => getMonthKeyFromDate(t.date)))];
+    const monthlySupportTotal = monthsInRange.reduce((sum, monthKey) => {
+      const support = getApprovedMonthlySupportAmount(driver.id, monthKey);
+      return sum + support;
+    }, 0);
+
     const baseSalary = Number(driver.baseSalary) || 0;
-    const allowanceVal = Number(driver.allowance) || 0; // Hỗ trợ riêng nước, điện thoại từ cấu hình lái xe
 
     // Chi phí sửa chữa lái xe đã chi (Mục 4) lấy từ Nhật ký chung hạng mục chi có liên kết lái xe này
     const repairCostSum = state.entries
       .filter(e => e.type === 'chi' && e.driverId === driver.id)
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
-    // Tính lương lái xe A = 1 + 2 + 3 (Cơ bản + Thưởng chuyến + Hỗ trợ riêng)
-    const netSalaryA = baseSalary + vipBonusTotal + allowanceVal;
+    // Tính lương lái xe A = 1 + 2 + 3 (Cơ bản + Thưởng chuyến + Hỗ trợ riêng đã duyệt theo tháng)
+    const netSalaryA = baseSalary + vipBonusTotal + monthlySupportTotal;
 
     // Tổng quyết toán cuối tháng B = A + 4 (Lương lái xe + Chi phí sửa chữa)
     const totalSettlementB = netSalaryA + repairCostSum;
@@ -5227,7 +5391,7 @@ function renderFleetSalaryReport(trips) {
           <div style="font-weight:600;color:var(--green)">${fmtThousands(vipBonusTotal)} ₫</div>
           <div style="font-size:0.75rem;color:var(--text2)">(${drvTrips.filter(t => t.isVip || t.isVip === 'true').length} chuyến VIP)</div>
         </td>
-        <td>${fmtThousands(allowanceVal)} ₫</td>
+        <td>${fmtThousands(monthlySupportTotal)} ₫</td>
         <td style="color:var(--blue);font-weight:700">${fmtThousands(netSalaryA)} ₫</td>
         <td style="color:var(--orange);font-weight:600">${fmtThousands(repairCostSum)} ₫</td>
         <td style="color:var(--green);font-weight:800;font-size:1.02rem">${fmtThousands(totalSettlementB)} ₫</td>
