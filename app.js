@@ -2273,7 +2273,7 @@ function renderFleetSalarySettings() {
   
   tbody.innerHTML = state.fleetDrivers.map(d => {
     const rule = getMonthlySupportRule(d.id, monthKey);
-    const currentSupport = rule?.amount ?? d.allowance || 0;
+    const currentSupport = rule?.amount ?? (d.allowance || 0);
     const canApprove = hasPermission('approve');
     const approvalLabel = rule?.status === 'approved' ? 'Đã duyệt' : 'Chờ duyệt';
     const approvalClass = rule?.status === 'approved' ? 'badge-paid' : 'badge-pending';
