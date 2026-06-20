@@ -338,7 +338,7 @@ async function loadData(silent = false) {
       });
       state.entries = mergedEntries;
 
-      state.users = data.users || [...DEFAULT_USERS];
+      state.users = Array.isArray(data.users) && data.users.length > 0 ? data.users : [...DEFAULT_USERS];
       if (data.categories) saveCategories(data.categories);
 
       // Thuật toán gộp thông minh (Smart Merge) cho Advances (Tạm ứng)
@@ -475,6 +475,7 @@ async function loadData(silent = false) {
         }
       });
       state.fleetMonthlySupport = mergedFleetMonthlySupport;
+      localStorage.setItem('tc_fleet_monthly_support', JSON.stringify(state.fleetMonthlySupport));
 
       // Thuật toán gộp cho Fleet Payroll History
       const serverFleetPayrollHistory = data.fleetPayrollHistory || [];
@@ -490,6 +491,7 @@ async function loadData(silent = false) {
         }
       });
       state.fleetPayrollHistory = mergedFleetPayrollHistory;
+      localStorage.setItem('tc_fleet_payroll_history', JSON.stringify(state.fleetPayrollHistory));
 
       // Thuật toán gộp cho Fleet Routes
       const serverFleetRoutes = data.fleetRoutes || [];
@@ -786,7 +788,8 @@ function initLogin() {
   $('btnLogin').addEventListener('click', () => {
     const u = $('loginUser').value.trim();
     const p = $('loginPass').value;
-    const user = state.users.find(x => x.username === u && x.password === p);
+    const effectiveUsers = Array.isArray(state.users) && state.users.length > 0 ? state.users : DEFAULT_USERS;
+    const user = effectiveUsers.find(x => x.username === u && x.password === p);
     if (!user) { $('loginError').textContent = 'Sai tên đăng nhập hoặc mật khẩu!'; return; }
     state.currentUser = user;
     $('loginScreen').classList.add('hidden');
