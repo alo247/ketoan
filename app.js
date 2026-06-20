@@ -28,6 +28,7 @@ let state = {
   fleetDrivers: [],
   fleetRoutes: [],
   fleetTrips: [],
+  systemSettings: [],
   chartMonthly: null,
   chartRatio: null,
   chartReport: null,
@@ -460,6 +461,22 @@ async function loadData(silent = false) {
       });
       state.fleetTrips = mergedFleetTrips;
 
+      // Thuật toán gộp cho System Settings
+      const serverSettings = data.systemSettings || [];
+      const localSettings = JSON.parse(localStorage.getItem('tc_system_settings') || '[]');
+      const mergedSettings = [...serverSettings];
+      localSettings.forEach(le => {
+        const se = serverSettings.find(x => x.key === le.key);
+        if (!se) {
+          if (le._unsynced) mergedSettings.push(le);
+        } else if (le._unsynced) {
+          const idx = mergedSettings.findIndex(x => x.key === se.key);
+          if (idx !== -1) mergedSettings[idx] = { ...mergedSettings[idx], ...le };
+        }
+      });
+      state.systemSettings = mergedSettings;
+      localStorage.setItem('tc_system_settings', JSON.stringify(state.systemSettings));
+
       localStorage.setItem('tc_users', JSON.stringify(state.users));
       localStorage.setItem('tc_entries', JSON.stringify(state.entries));
       localStorage.setItem('tc_advances', JSON.stringify(state.advances));
@@ -480,6 +497,7 @@ async function loadData(silent = false) {
       state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
       state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
       state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
+      state.systemSettings = JSON.parse(localStorage.getItem('tc_system_settings') || '[]');
     }
   } catch (err) {
     console.warn("Cloud load failed, using local storage:", err);
@@ -493,6 +511,7 @@ async function loadData(silent = false) {
     state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
     state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
     state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
+    state.systemSettings = JSON.parse(localStorage.getItem('tc_system_settings') || '[]');
   } finally {
     if (loadingEl) loadingEl.remove();
     
@@ -568,6 +587,7 @@ function saveData() {
   localStorage.setItem('tc_fleet_drivers', JSON.stringify(state.fleetDrivers));
   localStorage.setItem('tc_fleet_routes', JSON.stringify(state.fleetRoutes));
   localStorage.setItem('tc_fleet_trips', JSON.stringify(state.fleetTrips));
+  localStorage.setItem('tc_system_settings', JSON.stringify(state.systemSettings));
   if (window.saveAccounts) window.saveAccounts(state.accounts);
 }
 
@@ -1328,6 +1348,13 @@ function showEntryForm(entry) {
       <label>Đến tài khoản / Quỹ nhận</label>
       <select id="fToAccount">${window.getAccountOptionsHtml(entry ? entry.toAccount : '')}</select>
     </div>
+    <div class="form-group" id="fDriverGroup" style="display:${entry && entry.type === 'chi' ? 'block' : 'none'}">
+      <label>Lái xe thanh toán (nếu có)</label>
+      <select id="fDriverId">
+        <option value="">-- Không có / Không áp dụng --</option>
+        ${state.fleetDrivers.map(d => `<option value="${d.id}" ${entry && entry.driverId === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
+      </select>
+    </div>
     <div class="form-group">
       <label>Số tiền (₫)</label>
       <input type="text" id="fAmount" placeholder="Nhập số tiền" value="${entry ? formatThousand(entry.amount) : ''}">
@@ -1433,6 +1460,9 @@ window.updateCatOptions = function () {
   const catGroup = $('fCatGroup');
   const accGroup = $('fAccountGroup');
   const toAccGroup = $('fToAccountGroup');
+  const drvGroup = $('fDriverGroup');
+  
+  if (drvGroup) drvGroup.style.display = type === 'chi' ? 'block' : 'none';
   
   if (type === 'transfer') {
     if (catGroup) catGroup.style.display = 'none';
@@ -1482,6 +1512,7 @@ window.saveEntry = function () {
   const category = type === 'transfer' ? 'Chuyển quỹ nội bộ' : $('fCat').value;
   const amount = parseInt($('fAmount').value.replace(/\D/g, '')) || 0;
   const reason = $('fReason').value.trim();
+  const driverId = type === 'chi' && $('fDriverId') ? $('fDriverId').value : '';
 
   if (!date || !amount || amount <= 0 || !reason) { toast('Vui lòng điền đầy đủ thông tin!', 'error'); return; }
   if (type === 'transfer' && account === toAccount) { toast('Tài khoản chuyển và tài khoản nhận phải khác nhau!', 'error'); return; }
@@ -1492,7 +1523,7 @@ window.saveEntry = function () {
     const idx = state.entries.findIndex(e => e.id === state.editingId);
     if (idx !== -1) {
       const oldEntry = { ...state.entries[idx] };
-      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice, account, toAccount, _unsynced: true };
+      state.entries[idx] = { ...state.entries[idx], type, date, category, amount, reason, invoice, account, toAccount, driverId, _unsynced: true };
       entry = state.entries[idx];
       
       let auditDetail = `Tài khoản ${state.currentUser.username} sửa chứng từ STT ${entry.stt || '-'} (Trước: ${oldEntry.type === 'thu' ? 'Thu' : (oldEntry.type === 'chi' ? 'Chi' : 'Chuyển quỹ')}, ${fmt(oldEntry.amount)}, lý do: ${oldEntry.reason} -> Sau: ${type === 'thu' ? 'Thu' : (type === 'chi' ? 'Chi' : 'Chuyển quỹ')}, ${fmt(amount)}, lý do: ${reason})`;
@@ -1501,7 +1532,7 @@ window.saveEntry = function () {
     toast('Đã cập nhật giao dịch!');
   } else {
     const newStt = getNextSTT();
-    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt, account, toAccount, _unsynced: true };
+    entry = { id: uid(), type, date, category, amount, reason, invoice, createdBy: state.currentUser.username, createdAt: new Date().toISOString(), stt: newStt, account, toAccount, driverId, _unsynced: true };
     state.entries.push(entry);
     
     let auditDetail = `Tài khoản ${state.currentUser.username} thêm chứng từ mới STT ${newStt} (${type === 'thu' ? 'Thu' : (type === 'chi' ? 'Chi' : 'Chuyển quỹ')}, số tiền: ${fmt(amount)}, lý do: ${reason})`;
@@ -2132,6 +2163,81 @@ function renderSettings() {
     `;
   }).join('');
   renderAccountsSettings();
+  renderFleetSalarySettings();
+}
+
+function renderFleetSalarySettings() {
+  if (!hasPermission('users')) return;
+  
+  if ($('sVipBonus2')) $('sVipBonus2').value = getSetting('vip_bonus_2', '100000');
+  if ($('sVipBonus3')) $('sVipBonus3').value = getSetting('vip_bonus_3', '300000');
+  if ($('sVipBonus4')) $('sVipBonus4').value = getSetting('vip_bonus_4', '300000');
+  
+  const tbody = $('fleetDriversSettingsTable');
+  if (!tbody) return;
+  
+  tbody.innerHTML = state.fleetDrivers.map(d => {
+    return `
+      <tr data-driver-id="${d.id}">
+        <td><strong>${d.name}</strong></td>
+        <td>
+          <input type="number" class="drv-salary-input" value="${d.baseSalary || 0}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
+        </td>
+        <td>
+          <input type="number" class="drv-allowance-input" value="${d.allowance || 0}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
+        </td>
+        <td>
+          <span style="font-size:0.82rem;color:var(--text2)">${d.notes || '-'}</span>
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Chưa có lái xe</td></tr>';
+}
+
+function saveFleetSalarySettings() {
+  if (!hasPermission('users')) return toast('Bạn không có quyền chỉnh sửa cài đặt!', 'error');
+  
+  const vip2 = parseFloat($('sVipBonus2').value) || 0;
+  const vip3 = parseFloat($('sVipBonus3').value) || 0;
+  const vip4 = parseFloat($('sVipBonus4').value) || 0;
+  
+  const settings = {
+    vip_bonus_2: vip2,
+    vip_bonus_3: vip3,
+    vip_bonus_4: vip4
+  };
+  
+  for (let k in settings) {
+    const idx = state.systemSettings.findIndex(s => s.key === k);
+    if (idx !== -1) {
+      state.systemSettings[idx].value = String(settings[k]);
+      state.systemSettings[idx]._unsynced = true;
+    } else {
+      state.systemSettings.push({ key: k, value: String(settings[k]), desc: '', _unsynced: true });
+    }
+  }
+  
+  const rows = document.querySelectorAll('#fleetDriversSettingsTable tr[data-driver-id]');
+  rows.forEach(row => {
+    const drvId = row.dataset.driverId;
+    const salary = parseFloat(row.querySelector('.drv-salary-input').value) || 0;
+    const allowance = parseFloat(row.querySelector('.drv-allowance-input').value) || 0;
+    
+    const idx = state.fleetDrivers.findIndex(d => d.id === drvId);
+    if (idx !== -1) {
+      state.fleetDrivers[idx].baseSalary = salary;
+      state.fleetDrivers[idx].allowance = allowance;
+      state.fleetDrivers[idx]._unsynced = true;
+      
+      window.sendToCloud({ action: 'saveFleetDriver', driver: state.fleetDrivers[idx] });
+    }
+  });
+  
+  saveData();
+  window.sendToCloud({ action: 'saveSystemSettings', settings });
+  writeAuditLog('Cập nhật cấu hình Đội xe', `Cập nhật cấu hình thưởng VIP và bảng lương của lái xe`);
+  toast('Đã lưu cấu hình Đội xe và đồng bộ đám mây thành công!');
+  renderSettings();
 }
 
 /* ===== ACCOUNTS SETTINGS & CRUD FUNCTIONS ===== */
@@ -3949,6 +4055,15 @@ async function runPolling() {
 // MODULE QUẢN LÝ ĐỘI XE & LÁI XE (FLEET MANAGEMENT MODULE)
 // -------------------------------------------------------------
 
+function getSetting(key, defaultValue) {
+  if (!state.systemSettings) return defaultValue;
+  const item = state.systemSettings.find(s => s.key === key);
+  return item ? item.value : defaultValue;
+}
+function getSettingNumber(key, defaultValue) {
+  return Number(getSetting(key, defaultValue)) || 0;
+}
+
 let fleetActiveTab = 'trips';
 let fleetTripsPage = 1;
 const fleetTripsLimit = 15;
@@ -4417,6 +4532,10 @@ function showAddDriverForm() {
       <input type="number" id="fDrvSalary" value="8000000" step="100000">
     </div>
     <div class="form-group">
+      <label>Chi phí hỗ trợ riêng (Nước, điện thoại...) *</label>
+      <input type="number" id="fDrvAllowance" value="500000" step="50000">
+    </div>
+    <div class="form-group">
       <label>Ghi chú thêm</label>
       <input type="text" id="fDrvNotes" placeholder="Nhập bằng lái, hạn khám sức khỏe...">
     </div>
@@ -4445,6 +4564,10 @@ function showEditDriverForm(id) {
       <input type="number" id="fDrvSalary" value="${d.baseSalary}" step="100000">
     </div>
     <div class="form-group">
+      <label>Chi phí hỗ trợ riêng (Nước, điện thoại...) *</label>
+      <input type="number" id="fDrvAllowance" value="${d.allowance || 0}" step="50000">
+    </div>
+    <div class="form-group">
       <label>Ghi chú thêm</label>
       <input type="text" id="fDrvNotes" value="${d.notes || ''}">
     </div>
@@ -4459,15 +4582,16 @@ function saveFleetDriver(editingId = null) {
   const name = $('fDrvName').value.trim();
   const phone = $('fDrvPhone').value.trim();
   const baseSalary = parseFloat($('fDrvSalary').value) || 0;
+  const allowance = parseFloat($('fDrvAllowance').value) || 0;
   const notes = $('fDrvNotes').value.trim();
 
-  if (!name || baseSalary < 0) {
-    toast('Vui lòng điền họ tên lái xe và lương cơ bản hợp lệ!', 'error');
+  if (!name || baseSalary < 0 || allowance < 0) {
+    toast('Vui lòng điền họ tên lái xe, lương cơ bản và hỗ trợ riêng hợp lệ!', 'error');
     return;
   }
 
   const id = editingId || 'd_' + Date.now();
-  const driver = { id, name, phone, baseSalary, notes };
+  const driver = { id, name, phone, baseSalary, notes, allowance };
 
   if (editingId) {
     const idx = state.fleetDrivers.findIndex(x => x.id === editingId);
@@ -4616,7 +4740,7 @@ function showAddTripForm() {
   fleetTripInvoiceFile = null;
 
   openModal('Ghi nhận Chuyến đi mới', `
-    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <div>
         <label>Ngày vận hành *</label>
         <input type="date" id="fTripDate" value="${today()}">
@@ -4626,6 +4750,12 @@ function showAddTripForm() {
         <select id="fTripVehicleId">
           ${getVehicleOptionsHtml('')}
         </select>
+      </div>
+      <div style="display:flex;align-items:center;margin-top:20px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;margin-bottom:0">
+          <input type="checkbox" id="fTripIsVip" style="width:18px;height:18px;cursor:pointer">
+          <strong>Chuyến VIP</strong>
+        </label>
       </div>
     </div>
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -4731,7 +4861,7 @@ function showEditTripForm(id) {
   fleetTripInvoiceFile = null;
 
   openModal('Sửa thông tin chuyến đi', `
-    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
       <div>
         <label>Ngày vận hành *</label>
         <input type="date" id="fTripDate" value="${t.date}">
@@ -4741,6 +4871,12 @@ function showEditTripForm(id) {
         <select id="fTripVehicleId">
           ${getVehicleOptionsHtml(t.vehicleId)}
         </select>
+      </div>
+      <div style="display:flex;align-items:center;margin-top:20px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;margin-bottom:0">
+          <input type="checkbox" id="fTripIsVip" style="width:18px;height:18px;cursor:pointer" ${t.isVip ? 'checked' : ''}>
+          <strong>Chuyến VIP</strong>
+        </label>
       </div>
     </div>
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
@@ -4855,6 +4991,7 @@ function saveFleetTrip(editingId = null) {
   const salaryAdd = parseFloat($('fTripSalaryAdd').value) || 0;
   const salarySub = parseFloat($('fTripSalarySub').value) || 0;
   const notes = $('fTripNotes').value.trim();
+  const isVip = $('fTripIsVip') ? $('fTripIsVip').checked : false;
 
   if (!vehicleId || !driverId || !startPoint || !endPoint || kmActual <= 0 || fuelActual < 0) {
     toast('Vui lòng nhập đầy đủ các trường thông tin bắt buộc!', 'error');
@@ -4868,7 +5005,7 @@ function saveFleetTrip(editingId = null) {
   const trip = {
     id, date, driverId, vehicleId, routeId, startPoint, endPoint,
     kmActual, fuelActual, fuelNorm: 0, allowance, expense,
-    salaryAdd, salarySub, notes, invoice
+    salaryAdd, salarySub, notes, invoice, isVip
   };
 
   // Tính ngay dầu định mức tại client để cập nhật giao diện lập tức
@@ -4971,30 +5108,62 @@ function renderFleetSalaryReport(trips) {
     return;
   }
 
+  // Lấy các mức cấu hình thưởng VIP
+  const bonus2 = getSettingNumber('vip_bonus_2', 100000);
+  const bonus3 = getSettingNumber('vip_bonus_3', 300000);
+  const bonus4 = getSettingNumber('vip_bonus_4', 300000);
+
   tbody.innerHTML = state.fleetDrivers.map((driver, idx) => {
-    // Chuyến của lái xe
+    // Chuyến của lái xe trong khoảng thời gian đang lọc
     const drvTrips = trips.filter(t => t.driverId === driver.id);
-    const tripCount = drvTrips.length;
     
-    // Tổng hợp phụ cấp chuyến, cộng khác, trừ phạt
+    // Nhóm các chuyến đi theo ngày để tính thưởng chuyến VIP hằng ngày
+    const tripsByDate = {};
+    drvTrips.forEach(t => {
+      if (!tripsByDate[t.date]) {
+        tripsByDate[t.date] = [];
+      }
+      tripsByDate[t.date].push(t);
+    });
+
+    let vipBonusTotal = 0;
+    for (const date in tripsByDate) {
+      // Đếm số chuyến VIP trong ngày này
+      const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
+      const vipCount = vipTripsInDay.length;
+      
+      if (vipCount >= 2) vipBonusTotal += bonus2; // chuyến thứ hai
+      if (vipCount >= 3) vipBonusTotal += bonus3; // chuyến thứ ba
+      if (vipCount >= 4) vipBonusTotal += (vipCount - 3) * bonus4; // chuyến thứ tư trở đi
+    }
+
     const baseSalary = Number(driver.baseSalary) || 0;
-    const allowanceSum = drvTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
-    const salaryAddSum = drvTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
-    const salarySubSum = drvTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
-    
-    // Tính lương thực lĩnh
-    const netSalary = baseSalary + allowanceSum + salaryAddSum - salarySubSum;
+    const allowanceVal = Number(driver.allowance) || 0; // Hỗ trợ riêng nước, điện thoại từ cấu hình lái xe
+
+    // Chi phí sửa chữa lái xe đã chi (Mục 4) lấy từ Nhật ký chung hạng mục chi có liên kết lái xe này
+    const repairCostSum = state.entries
+      .filter(e => e.type === 'chi' && e.driverId === driver.id)
+      .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    // Tính lương lái xe A = 1 + 2 + 3 (Cơ bản + Thưởng chuyến + Hỗ trợ riêng)
+    const netSalaryA = baseSalary + vipBonusTotal + allowanceVal;
+
+    // Tổng quyết toán cuối tháng B = A + 4 (Lương lái xe + Chi phí sửa chữa)
+    const totalSettlementB = netSalaryA + repairCostSum;
 
     return `
       <tr>
         <td>${idx + 1}</td>
         <td><strong>${driver.name}</strong></td>
         <td>${fmtThousands(baseSalary)} ₫</td>
-        <td><span class="badge badge-paid">${tripCount} chuyến</span></td>
-        <td style="color:var(--green)">${fmtThousands(allowanceSum)} ₫</td>
-        <td style="color:var(--green)">+${fmtThousands(salaryAddSum)} ₫</td>
-        <td style="color:var(--red)">-${fmtThousands(salarySubSum)} ₫</td>
-        <td style="color:var(--blue);font-weight:700;font-size:1.02rem">${fmtThousands(netSalary)} ₫</td>
+        <td>
+          <div style="font-weight:600;color:var(--green)">${fmtThousands(vipBonusTotal)} ₫</div>
+          <div style="font-size:0.75rem;color:var(--text2)">(${drvTrips.filter(t => t.isVip || t.isVip === 'true').length} chuyến VIP)</div>
+        </td>
+        <td>${fmtThousands(allowanceVal)} ₫</td>
+        <td style="color:var(--blue);font-weight:700">${fmtThousands(netSalaryA)} ₫</td>
+        <td style="color:var(--orange);font-weight:600">${fmtThousands(repairCostSum)} ₫</td>
+        <td style="color:var(--green);font-weight:800;font-size:1.02rem">${fmtThousands(totalSettlementB)} ₫</td>
       </tr>
     `;
   }).join('');
@@ -5138,30 +5307,55 @@ function exportFleetReport() {
   const wb = XLSX.utils.book_new();
 
   if (type === 'salary') {
+    const bonus2 = getSettingNumber('vip_bonus_2', 100000);
+    const bonus3 = getSettingNumber('vip_bonus_3', 300000);
+    const bonus4 = getSettingNumber('vip_bonus_4', 300000);
+
     const salaryData = state.fleetDrivers.map((driver, idx) => {
       const drvTrips = rangeTrips.filter(t => t.driverId === driver.id);
+      
+      // Tính toán thưởng chuyến VIP lũy tiến
+      const tripsByDate = {};
+      drvTrips.forEach(t => {
+        if (!tripsByDate[t.date]) tripsByDate[t.date] = [];
+        tripsByDate[t.date].push(t);
+      });
+
+      let vipBonusTotal = 0;
+      for (const date in tripsByDate) {
+        const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
+        const vipCount = vipTripsInDay.length;
+        if (vipCount >= 2) vipBonusTotal += bonus2;
+        if (vipCount >= 3) vipBonusTotal += bonus3;
+        if (vipCount >= 4) vipBonusTotal += (vipCount - 3) * bonus4;
+      }
+
       const baseSalary = Number(driver.baseSalary) || 0;
-      const allowanceSum = drvTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
-      const salaryAddSum = drvTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
-      const salarySubSum = drvTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
-      const netSalary = baseSalary + allowanceSum + salaryAddSum - salarySubSum;
+      const allowanceVal = Number(driver.allowance) || 0;
+      
+      const repairCostSum = state.entries
+        .filter(e => e.type === 'chi' && e.driverId === driver.id)
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      const netSalaryA = baseSalary + vipBonusTotal + allowanceVal;
+      const totalSettlementB = netSalaryA + repairCostSum;
 
       return {
         'STT': idx + 1,
         'Họ và tên lái xe': driver.name,
-        'Lương cơ bản (đ)': baseSalary,
-        'Số chuyến đi': drvTrips.length,
-        'Tổng phụ cấp chuyến (đ)': allowanceSum,
-        'Khoản cộng (+) (đ)': salaryAddSum,
-        'Khoản trừ (-) (đ)': salarySubSum,
-        'Lương thực nhận (đ)': netSalary
+        'Lương cơ bản (1)': baseSalary,
+        'Thưởng chuyến VIP (2)': vipBonusTotal,
+        'Hỗ trợ riêng (3)': allowanceVal,
+        'Lương lái xe (A=1+2+3)': netSalaryA,
+        'Sửa chữa đã chi (4)': repairCostSum,
+        'Tổng quyết toán (B=A+4)': totalSettlementB
       };
     });
 
     const ws = XLSX.utils.json_to_sheet(salaryData);
-    ws['!cols'] = [{ wch: 6 }, { wch: 22 }, { wch: 18 }, { wch: 10 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 20 }];
-    XLSX.utils.book_append_sheet(wb, ws, 'BangLuong_LaiXe');
-    downloadExcel(wb, `BangLuong_LaiXe_${start}_to_${end}.xlsx`);
+    ws['!cols'] = [{ wch: 6 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 18 }, { wch: 22 }, { wch: 20 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'QuyetToanLuong_LaiXe');
+    downloadExcel(wb, `QuyetToanLuong_LaiXe_${start}_to_${end}.xlsx`);
 
   } else if (type === 'fuel_summary') {
     const groupBy = $('fltReportGroupBy').value;
@@ -5265,37 +5459,62 @@ function printFleetReport() {
   let tableRows = '';
 
   if (type === 'salary') {
-    reportTitle = 'BÁO CÁO TÍNH LƯƠNG LÁI XE CHI TIẾT';
+    const bonus2 = getSettingNumber('vip_bonus_2', 100000);
+    const bonus3 = getSettingNumber('vip_bonus_3', 300000);
+    const bonus4 = getSettingNumber('vip_bonus_4', 300000);
+
+    reportTitle = 'BÁO CÁO QUYẾT TOÁN LƯƠNG LÁI XE CHI TIẾT';
     tableHeaders = `
       <tr>
         <th>STT</th>
         <th>Họ và tên lái xe</th>
-        <th>Lương cơ bản</th>
-        <th>Số chuyến đi</th>
-        <th>Tổng phụ cấp chuyến</th>
-        <th>Các khoản cộng (+)</th>
-        <th>Các khoản trừ (-)</th>
-        <th>Thực nhận lương</th>
+        <th>Lương cơ bản (1)</th>
+        <th>Thưởng chuyến VIP (2)</th>
+        <th>Hỗ trợ riêng (3)</th>
+        <th>Lương lái xe (A=1+2+3)</th>
+        <th>Sửa chữa đã chi (4)</th>
+        <th>Tổng quyết toán (B=A+4)</th>
       </tr>
     `;
     tableRows = state.fleetDrivers.map((driver, idx) => {
       const drvTrips = rangeTrips.filter(t => t.driverId === driver.id);
+      
+      // Tính toán thưởng chuyến VIP lũy tiến
+      const tripsByDate = {};
+      drvTrips.forEach(t => {
+        if (!tripsByDate[t.date]) tripsByDate[t.date] = [];
+        tripsByDate[t.date].push(t);
+      });
+
+      let vipBonusTotal = 0;
+      for (const date in tripsByDate) {
+        const vipTripsInDay = tripsByDate[date].filter(t => t.isVip || t.isVip === 'true');
+        const vipCount = vipTripsInDay.length;
+        if (vipCount >= 2) vipBonusTotal += bonus2;
+        if (vipCount >= 3) vipBonusTotal += bonus3;
+        if (vipCount >= 4) vipBonusTotal += (vipCount - 3) * bonus4;
+      }
+
       const baseSalary = Number(driver.baseSalary) || 0;
-      const allowanceSum = drvTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
-      const salaryAddSum = drvTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
-      const salarySubSum = drvTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
-      const netSalary = baseSalary + allowanceSum + salaryAddSum - salarySubSum;
+      const allowanceVal = Number(driver.allowance) || 0;
+      
+      const repairCostSum = state.entries
+        .filter(e => e.type === 'chi' && e.driverId === driver.id)
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+      const netSalaryA = baseSalary + vipBonusTotal + allowanceVal;
+      const totalSettlementB = netSalaryA + repairCostSum;
 
       return `
         <tr>
           <td>${idx + 1}</td>
           <td><strong>${driver.name}</strong></td>
           <td>${fmtThousands(baseSalary)} ₫</td>
-          <td>${drvTrips.length} chuyến</td>
-          <td>${fmtThousands(allowanceSum)} ₫</td>
-          <td>+${fmtThousands(salaryAddSum)} ₫</td>
-          <td>-${fmtThousands(salarySubSum)} ₫</td>
-          <td style="font-weight:bold">${fmtThousands(netSalary)} ₫</td>
+          <td>${fmtThousands(vipBonusTotal)} ₫ (${drvTrips.filter(t => t.isVip || t.isVip === 'true').length} chuyến VIP)</td>
+          <td>${fmtThousands(allowanceVal)} ₫</td>
+          <td style="font-weight:bold">${fmtThousands(netSalaryA)} ₫</td>
+          <td style="color:var(--orange)">${fmtThousands(repairCostSum)} ₫</td>
+          <td style="font-weight:bold;color:var(--green)">${fmtThousands(totalSettlementB)} ₫</td>
         </tr>
       `;
     }).join('');

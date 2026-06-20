@@ -18,7 +18,8 @@ function doGet(e) {
       fleetVehicles: getSheetData(ss.getSheetByName("fleetVehicles")),
       fleetDrivers: getSheetData(ss.getSheetByName("fleetDrivers")),
       fleetRoutes: getSheetData(ss.getSheetByName("fleetRoutes")),
-      fleetTrips: getSheetData(ss.getSheetByName("fleetTrips"))
+      fleetTrips: getSheetData(ss.getSheetByName("fleetTrips")),
+      systemSettings: getSheetData(ss.getSheetByName("systemSettings"))
     };
     
     return ContentService.createTextOutput(JSON.stringify(data))
@@ -55,7 +56,7 @@ function doPost(e) {
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
     } else if (action === "restoreAll") {
-      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts, payload.fleetVehicles, payload.fleetDrivers, payload.fleetRoutes, payload.fleetTrips);
+      result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts, payload.fleetVehicles, payload.fleetDrivers, payload.fleetRoutes, payload.fleetTrips, payload.systemSettings);
     } else if (action === "saveAdvance") {
       result = saveAdvance(ss, payload.advance, payload.fileData);
     } else if (action === "deleteAdvance") {
@@ -88,6 +89,8 @@ function doPost(e) {
       result = saveFleetTrip(ss, payload.trip, payload.fileData);
     } else if (action === "deleteFleetTrip") {
       result = deleteFleetTrip(ss, payload.id);
+    } else if (action === "saveSystemSettings") {
+      result = saveSystemSettings(ss, payload.settings);
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -105,14 +108,14 @@ function doPost(e) {
 // -------------------------------------------------------------
 function initDatabase(ss) {
   var cache = CacheService.getScriptCache();
-  var cached = cache.get("db_initialized_v5"); // Nâng cấp phiên bản db_initialized
+  var cached = cache.get("db_initialized_v7"); // Nâng cấp phiên bản db_initialized lên v7
   if (cached === "true") {
     return; // Đã khởi tạo cấu trúc CSDL trực tuyến, bỏ qua để tăng tốc tối đa
   }
 
   // 1. Tạo hoặc kiểm tra sheet 'entries'
   var entriesSheet = ss.getSheetByName("entries");
-  var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt", "account", "toAccount"];
+  var entriesHeaders = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt", "account", "toAccount", "driverId"];
   if (!entriesSheet) {
     entriesSheet = ss.insertSheet("entries");
     entriesSheet.appendRow(entriesHeaders);
@@ -219,11 +222,20 @@ function initDatabase(ss) {
 
   // 9. Tạo hoặc kiểm tra sheet 'fleetDrivers' (Danh sách lái xe)
   var fDriversSheet = ss.getSheetByName("fleetDrivers");
-  var fDriversHeaders = ["id", "name", "phone", "baseSalary", "notes"];
+  var fDriversHeaders = ["id", "name", "phone", "baseSalary", "notes", "allowance"];
   if (!fDriversSheet) {
     fDriversSheet = ss.insertSheet("fleetDrivers");
     fDriversSheet.appendRow(fDriversHeaders);
     fDriversSheet.getRange(1, 1, 1, fDriversHeaders.length).setFontWeight("bold").setBackground("#fce5cd");
+  } else {
+    var currentHeaders = fDriversSheet.getRange(1, 1, 1, fDriversSheet.getLastColumn()).getValues()[0];
+    for (var i = 0; i < fDriversHeaders.length; i++) {
+      var header = fDriversHeaders[i];
+      if (currentHeaders.indexOf(header) === -1) {
+        fDriversSheet.getRange(1, fDriversSheet.getLastColumn() + 1).setValue(header)
+          .setFontWeight("bold").setBackground("#fce5cd");
+      }
+    }
   }
 
   // 10. Tạo hoặc kiểm tra sheet 'fleetRoutes' (Cung đường)
@@ -237,15 +249,37 @@ function initDatabase(ss) {
 
   // 11. Tạo hoặc kiểm tra sheet 'fleetTrips' (Chuyến đi & Nhiên liệu)
   var fTripsSheet = ss.getSheetByName("fleetTrips");
-  var fTripsHeaders = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice"];
+  var fTripsHeaders = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice", "isVip"];
   if (!fTripsSheet) {
     fTripsSheet = ss.insertSheet("fleetTrips");
     fTripsSheet.appendRow(fTripsHeaders);
     fTripsSheet.getRange(1, 1, 1, fTripsHeaders.length).setFontWeight("bold").setBackground("#d9ead3");
+  } else {
+    var currentHeaders = fTripsSheet.getRange(1, 1, 1, fTripsSheet.getLastColumn()).getValues()[0];
+    for (var i = 0; i < fTripsHeaders.length; i++) {
+      var header = fTripsHeaders[i];
+      if (currentHeaders.indexOf(header) === -1) {
+        fTripsSheet.getRange(1, fTripsSheet.getLastColumn() + 1).setValue(header)
+          .setFontWeight("bold").setBackground("#d9ead3");
+      }
+    }
+  }
+
+  // 12. Tạo hoặc kiểm tra sheet 'systemSettings' (Cài đặt hệ thống)
+  var settingsSheet = ss.getSheetByName("systemSettings");
+  var settingsHeaders = ["key", "value", "desc"];
+  if (!settingsSheet) {
+    settingsSheet = ss.insertSheet("systemSettings");
+    settingsSheet.appendRow(settingsHeaders);
+    settingsSheet.getRange(1, 1, 1, settingsHeaders.length).setFontWeight("bold").setBackground("#f3f4f6");
+    // Thêm các cấu hình thưởng chuyến VIP mặc định
+    settingsSheet.appendRow(["vip_bonus_2", "100000", "Thưởng chuyến VIP thứ 2 trong ngày"]);
+    settingsSheet.appendRow(["vip_bonus_3", "300000", "Thưởng chuyến VIP thứ 3 trong ngày"]);
+    settingsSheet.appendRow(["vip_bonus_4", "300000", "Thưởng chuyến VIP thứ 4 trong ngày"]);
   }
 
   // Lưu trạng thái đã khởi tạo cấu trúc CSDL vào Cache trong 6 giờ (21600 giây)
-  cache.put("db_initialized_v6", "true", 21600);
+  cache.put("db_initialized_v7", "true", 21600);
 }
 
 // -------------------------------------------------------------
@@ -659,7 +693,7 @@ function getOrCreateFolder(folderName) {
 // -------------------------------------------------------------
 // ĐỒNG BỘ TOÀN BỘ CƠ SỞ DỮ LIỆU (RESTORE ALL)
 // -------------------------------------------------------------
-function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, accounts) {
+function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, accounts, fleetVehicles, fleetDrivers, fleetRoutes, fleetTrips, systemSettings) {
   try {
     // 1. Đồng bộ Entries (Nhật Ký Chung)
     if (entries && Array.isArray(entries)) {
@@ -667,7 +701,7 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
       if (sheet.getLastRow() >= 2) {
         sheet.deleteRows(2, sheet.getLastRow() - 1);
       }
-      var headers = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt", "account", "toAccount"];
+      var headers = ["id", "type", "date", "category", "amount", "reason", "createdBy", "createdAt", "invoice", "auditStatus", "auditNote", "stt", "account", "toAccount", "driverId"];
       
       var rowsToAppend = [];
       for (var i = 0; i < entries.length; i++) {
@@ -864,7 +898,7 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
       if (fDrvSheet.getLastRow() >= 2) {
         fDrvSheet.deleteRows(2, fDrvSheet.getLastRow() - 1);
       }
-      var fDrvHeaders = ["id", "name", "phone", "baseSalary", "notes"];
+      var fDrvHeaders = ["id", "name", "phone", "baseSalary", "notes", "allowance"];
       var fDrvRows = [];
       for (var fd = 0; fd < fleetDrivers.length; fd++) {
         var d = fleetDrivers[fd];
@@ -873,7 +907,8 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
           d.name || "",
           d.phone || "",
           Number(d.baseSalary) || 0,
-          d.notes || ""
+          d.notes || "",
+          Number(d.allowance) || 0
         ]);
       }
       if (fDrvRows.length > 0) {
@@ -911,7 +946,7 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
       if (fTrpSheet.getLastRow() >= 2) {
         fTrpSheet.deleteRows(2, fTrpSheet.getLastRow() - 1);
       }
-      var fTrpHeaders = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice"];
+      var fTrpHeaders = ["id", "date", "driverId", "vehicleId", "routeId", "startPoint", "endPoint", "kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub", "notes", "invoice", "isVip"];
       var fTrpRows = [];
       for (var ft = 0; ft < fleetTrips.length; ft++) {
         var t = fleetTrips[ft];
@@ -931,6 +966,27 @@ function restoreAll(ss, entries, users, categories, advances, debts, auditLogs, 
       }
       if (fTrpRows.length > 0) {
         fTrpSheet.getRange(2, 1, fTrpRows.length, fTrpHeaders.length).setValues(fTrpRows);
+      }
+    }
+
+    // 12. Đồng bộ System Settings
+    if (systemSettings && Array.isArray(systemSettings)) {
+      var setSheet = ss.getSheetByName("systemSettings");
+      if (setSheet.getLastRow() >= 2) {
+        setSheet.deleteRows(2, setSheet.getLastRow() - 1);
+      }
+      var setHeaders = ["key", "value", "desc"];
+      var setRows = [];
+      for (var s = 0; s < systemSettings.length; s++) {
+        var setting = systemSettings[s];
+        setRows.push([
+          setting.key || "",
+          String(setting.value || ""),
+          setting.desc || ""
+        ]);
+      }
+      if (setRows.length > 0) {
+        setSheet.getRange(2, 1, setRows.length, setHeaders.length).setValues(setRows);
       }
     }
 
@@ -1197,4 +1253,25 @@ function deleteFleetTrip(ss, id) {
     }
   }
   return { success: false, error: "Chuyến đi không tồn tại trên Cloud!" };
+}
+
+function saveSystemSettings(ss, settings) {
+  var sheet = ss.getSheetByName("systemSettings");
+  var headers = ["key", "value", "desc"];
+  var data = sheet.getRange(1, 1, sheet.getLastRow(), sheet.getLastColumn()).getValues();
+  
+  for (var k in settings) {
+    var found = false;
+    for (var r = 1; r < data.length; r++) {
+      if (data[r][0] === k) {
+        sheet.getRange(r + 1, 2).setValue(String(settings[k]));
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      sheet.appendRow([k, String(settings[k]), ""]);
+    }
+  }
+  return { success: true };
 }
