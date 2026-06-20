@@ -2767,6 +2767,14 @@ function getSchemeName(scheme) {
 
 /* ===== ADVANCES & SETTLEMENTS CRUD ===== */
 window.renderAdvances = function() {
+  const btnNew = $('btnNewAdvance');
+  if (btnNew) {
+    if (hasPermission('advances_submit')) {
+      btnNew.style.display = 'inline-block';
+    } else {
+      btnNew.style.display = 'none';
+    }
+  }
   const tbody = $('advancesTable');
   if (!tbody) return;
 
@@ -2874,6 +2882,10 @@ window.renderAdvances = function() {
 };
 
 window.submitAdvanceProposal = function() {
+  if (!hasPermission('advances_submit')) {
+    toast('Bạn không có quyền tạo đề xuất tạm ứng!', 'error');
+    return;
+  }
   const isStaff = state.currentUser && state.currentUser.role === 'staff';
   const requesterHtml = isStaff 
     ? `<input type="text" id="advEmployee" value="${state.currentUser.username}" readonly style="background:rgba(255,255,255,0.05);color:var(--text2);width:100%;padding:8px;border-radius:6px;border:1px solid var(--border)">`
@@ -2911,6 +2923,10 @@ window.submitAdvanceProposal = function() {
 };
 
 window.saveAdvanceProposal = function() {
+  if (!hasPermission('advances_submit')) {
+    toast('Bạn không có quyền tạo đề xuất tạm ứng!', 'error');
+    return;
+  }
   const employee = $('advEmployee').value.trim();
   const amount = parseInt($('advAmount').value.replace(/\D/g, '')) || 0;
   const date = $('advDate').value;
@@ -3065,6 +3081,13 @@ window.showSettlementForm = function(id) {
 window.submitSettlement = function(id) {
   const adv = state.advances.find(a => a.id === id);
   if (!adv) return;
+
+  const isSelf = state.currentUser && state.currentUser.username === adv.employee;
+  const isAccountantOrAdmin = hasPermission('advances_edit');
+  if (!isSelf && !isAccountantOrAdmin) {
+    toast('Bạn không có quyền quyết toán đề xuất này!', 'error');
+    return;
+  }
 
   const spentAmount = parseInt($('settleAmount').value.replace(/\D/g, '')) || 0;
   const settleDate = $('settleDate').value;
@@ -3863,6 +3886,9 @@ window.generateForecastChart = function() {
 
 /* ===== EVENT WIRING & ADAPTER CORES ===== */
 function wireUpAdvancedModules() {
+  $('btnNewAdvance')?.addEventListener('click', () => {
+    submitAdvanceProposal();
+  });
   $('advSearchInput')?.addEventListener('input', () => {
     renderAdvances();
   });
