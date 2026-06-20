@@ -2169,9 +2169,23 @@ function renderSettings() {
 function renderFleetSalarySettings() {
   if (!hasPermission('users')) return;
   
-  if ($('sVipBonus2')) $('sVipBonus2').value = getSetting('vip_bonus_2', '100000');
-  if ($('sVipBonus3')) $('sVipBonus3').value = getSetting('vip_bonus_3', '300000');
-  if ($('sVipBonus4')) $('sVipBonus4').value = getSetting('vip_bonus_4', '300000');
+  if ($('sVipBonus2')) $('sVipBonus2').value = formatThousand(getSetting('vip_bonus_2', '100000'));
+  if ($('sVipBonus3')) $('sVipBonus3').value = formatThousand(getSetting('vip_bonus_3', '300000'));
+  if ($('sVipBonus4')) $('sVipBonus4').value = formatThousand(getSetting('vip_bonus_4', '300000'));
+
+  // Đăng ký sự kiện tự động định dạng hàng nghìn cho 3 ô thưởng VIP
+  ['sVipBonus2', 'sVipBonus3', 'sVipBonus4'].forEach(id => {
+    const el = $(id);
+    if (el && !el._hasAutoFormat) {
+      el.type = 'text';
+      el.placeholder = 'Nhập số tiền';
+      el.addEventListener('input', function() {
+        const clean = this.value.replace(/\D/g, '');
+        this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+      });
+      el._hasAutoFormat = true;
+    }
+  });
   
   const tbody = $('fleetDriversSettingsTable');
   if (!tbody) return;
@@ -2181,10 +2195,10 @@ function renderFleetSalarySettings() {
       <tr data-driver-id="${d.id}">
         <td><strong>${d.name}</strong></td>
         <td>
-          <input type="number" class="drv-salary-input" value="${d.baseSalary || 0}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
+          <input type="text" class="drv-salary-input text-amount" value="${formatThousand(d.baseSalary || 0)}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
         </td>
         <td>
-          <input type="number" class="drv-allowance-input" value="${d.allowance || 0}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
+          <input type="text" class="drv-allowance-input text-amount" value="${formatThousand(d.allowance || 0)}" style="width:120px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--bg1);color:var(--text)">
         </td>
         <td>
           <span style="font-size:0.82rem;color:var(--text2)">${d.notes || '-'}</span>
@@ -2192,14 +2206,22 @@ function renderFleetSalarySettings() {
       </tr>
     `;
   }).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--text2);padding:20px">Chưa có lái xe</td></tr>';
+
+  // Đăng ký sự kiện định dạng hàng nghìn cho các ô trong bảng
+  tbody.querySelectorAll('.text-amount').forEach(el => {
+    el.addEventListener('input', function() {
+      const clean = this.value.replace(/\D/g, '');
+      this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+    });
+  });
 }
 
 function saveFleetSalarySettings() {
   if (!hasPermission('users')) return toast('Bạn không có quyền chỉnh sửa cài đặt!', 'error');
   
-  const vip2 = parseFloat($('sVipBonus2').value) || 0;
-  const vip3 = parseFloat($('sVipBonus3').value) || 0;
-  const vip4 = parseFloat($('sVipBonus4').value) || 0;
+  const vip2 = parseFloat($('sVipBonus2').value.replace(/\D/g, '')) || 0;
+  const vip3 = parseFloat($('sVipBonus3').value.replace(/\D/g, '')) || 0;
+  const vip4 = parseFloat($('sVipBonus4').value.replace(/\D/g, '')) || 0;
   
   const settings = {
     vip_bonus_2: vip2,
@@ -2220,8 +2242,8 @@ function saveFleetSalarySettings() {
   const rows = document.querySelectorAll('#fleetDriversSettingsTable tr[data-driver-id]');
   rows.forEach(row => {
     const drvId = row.dataset.driverId;
-    const salary = parseFloat(row.querySelector('.drv-salary-input').value) || 0;
-    const allowance = parseFloat(row.querySelector('.drv-allowance-input').value) || 0;
+    const salary = parseFloat(row.querySelector('.drv-salary-input').value.replace(/\D/g, '')) || 0;
+    const allowance = parseFloat(row.querySelector('.drv-allowance-input').value.replace(/\D/g, '')) || 0;
     
     const idx = state.fleetDrivers.findIndex(d => d.id === drvId);
     if (idx !== -1) {
@@ -4341,22 +4363,25 @@ function renderFleetDrivers() {
   
   tbody.innerHTML = state.fleetDrivers.map((d, idx) => {
     const baseSalary = Number(d.baseSalary) || 0;
+    const allowance = Number(d.allowance) || 0;
     return `
       <tr>
         <td>${idx + 1}</td>
         <td><strong>${d.name}</strong></td>
         <td>${d.phone || '-'}</td>
         <td style="color:var(--blue);font-weight:600">${fmtThousands(baseSalary)} ₫</td>
+        <td style="color:var(--green);font-weight:600">${fmtThousands(allowance)} ₫</td>
         <td><span style="font-size:0.85rem;color:var(--text2)">${d.notes || '-'}</span></td>
         <td>
+          <button class="btn btn-success btn-sm" onclick="showDriverDailyDebtModal('${d.id}')" title="Chốt công nợ theo ngày"><i class="fas fa-hand-holding-usd"></i> Chốt nợ ngày</button>
           ${canEdit ? `
-            <button class="btn btn-primary btn-sm" onclick="showEditDriverForm('${d.id}')"><i class="fas fa-edit"></i></button>
-            <button class="btn btn-danger btn-sm" onclick="deleteFleetDriver('${d.id}')"><i class="fas fa-trash"></i></button>
+            <button class="btn btn-primary btn-sm" onclick="showEditDriverForm('${d.id}')" title="Sửa"><i class="fas fa-edit"></i></button>
+            <button class="btn btn-danger btn-sm" onclick="deleteFleetDriver('${d.id}')" title="Xóa"><i class="fas fa-trash"></i></button>
           ` : '-'}
         </td>
       </tr>
     `;
-  }).join('') || `<tr><td colspan="6" style="text-align:center;color:var(--text2);padding:30px">Chưa có tài xế nào được thiết lập</td></tr>`;
+  }).join('') || `<tr><td colspan="7" style="text-align:center;color:var(--text2);padding:30px">Chưa có tài xế nào được thiết lập</td></tr>`;
 }
 
 // 4. TAB TUYẾN ĐƯỜNG
@@ -4528,12 +4553,12 @@ function showAddDriverForm() {
       <input type="text" id="fDrvPhone" placeholder="Ví dụ: 0912345678">
     </div>
     <div class="form-group">
-      <label>Lương cơ bản hàng tháng *</label>
-      <input type="number" id="fDrvSalary" value="8000000" step="100000">
+      <label>Lương cơ bản hàng tháng (₫) *</label>
+      <input type="text" id="fDrvSalary" value="8.000.000" placeholder="Nhập số tiền">
     </div>
     <div class="form-group">
-      <label>Chi phí hỗ trợ riêng (Nước, điện thoại...) *</label>
-      <input type="number" id="fDrvAllowance" value="500000" step="50000">
+      <label>Chi phí hỗ trợ riêng (Nước, điện thoại...) (₫) *</label>
+      <input type="text" id="fDrvAllowance" value="500.000" placeholder="Nhập số tiền">
     </div>
     <div class="form-group">
       <label>Ghi chú thêm</label>
@@ -4544,6 +4569,16 @@ function showAddDriverForm() {
       <button class="btn btn-primary" onclick="saveFleetDriver()"><i class="fas fa-save"></i> Lưu tài xế</button>
     </div>
   `);
+
+  ['fDrvSalary', 'fDrvAllowance'].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener('input', function() {
+        const clean = this.value.replace(/\D/g, '');
+        this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+      });
+    }
+  });
 }
 
 function showEditDriverForm(id) {
@@ -4560,12 +4595,12 @@ function showEditDriverForm(id) {
       <input type="text" id="fDrvPhone" value="${d.phone || ''}">
     </div>
     <div class="form-group">
-      <label>Lương cơ bản hàng tháng *</label>
-      <input type="number" id="fDrvSalary" value="${d.baseSalary}" step="100000">
+      <label>Lương cơ bản hàng tháng (₫) *</label>
+      <input type="text" id="fDrvSalary" value="${formatThousand(d.baseSalary || 0)}">
     </div>
     <div class="form-group">
-      <label>Chi phí hỗ trợ riêng (Nước, điện thoại...) *</label>
-      <input type="number" id="fDrvAllowance" value="${d.allowance || 0}" step="50000">
+      <label>Chi phí hỗ trợ riêng (Nước, điện thoại...) (₫) *</label>
+      <input type="text" id="fDrvAllowance" value="${formatThousand(d.allowance || 0)}">
     </div>
     <div class="form-group">
       <label>Ghi chú thêm</label>
@@ -4576,13 +4611,23 @@ function showEditDriverForm(id) {
       <button class="btn btn-primary" onclick="saveFleetDriver('${d.id}')"><i class="fas fa-save"></i> Cập nhật</button>
     </div>
   `);
+
+  ['fDrvSalary', 'fDrvAllowance'].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener('input', function() {
+        const clean = this.value.replace(/\D/g, '');
+        this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+      });
+    }
+  });
 }
 
 function saveFleetDriver(editingId = null) {
   const name = $('fDrvName').value.trim();
   const phone = $('fDrvPhone').value.trim();
-  const baseSalary = parseFloat($('fDrvSalary').value) || 0;
-  const allowance = parseFloat($('fDrvAllowance').value) || 0;
+  const baseSalary = parseFloat($('fDrvSalary').value.replace(/\D/g, '')) || 0;
+  const allowance = parseFloat($('fDrvAllowance').value.replace(/\D/g, '')) || 0;
   const notes = $('fDrvNotes').value.trim();
 
   if (!name || baseSalary < 0 || allowance < 0) {
@@ -4794,22 +4839,22 @@ function showAddTripForm() {
     </div>
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div>
-        <label>Phụ cấp chuyến (xin ứng/thanh toán) *</label>
-        <input type="number" id="fTripAllowance" value="100000" min="0" step="10000">
+        <label>Phụ cấp chuyến (xin ứng/thanh toán) (₫) *</label>
+        <input type="text" id="fTripAllowance" value="100.000" placeholder="Nhập số tiền">
       </div>
       <div>
-        <label>Chi phí chuyến đi phát sinh (Cầu đường...)</label>
-        <input type="number" id="fTripExpense" value="0" min="0" step="10000">
+        <label>Chi phí chuyến đi phát sinh (Cầu đường...) (₫)</label>
+        <input type="text" id="fTripExpense" value="0" placeholder="Nhập số tiền">
       </div>
     </div>
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div>
-        <label>Khoản cộng lương khác (+)</label>
-        <input type="number" id="fTripSalaryAdd" value="0" min="0" step="10000" placeholder="Thưởng chuyến, OT...">
+        <label>Khoản cộng lương khác (+) (₫)</label>
+        <input type="text" id="fTripSalaryAdd" value="0" placeholder="Nhập số tiền">
       </div>
       <div>
-        <label>Khoản trừ lương khác (-)</label>
-        <input type="number" id="fTripSalarySub" value="0" min="0" step="10000" placeholder="Phạt dầu vượt định mức...">
+        <label>Khoản trừ lương khác (-) (₫)</label>
+        <input type="text" id="fTripSalarySub" value="0" placeholder="Nhập số tiền">
       </div>
     </div>
     <div class="form-group">
@@ -4826,6 +4871,17 @@ function showAddTripForm() {
       <button class="btn btn-primary" onclick="saveFleetTrip()"><i class="fas fa-save"></i> Ghi nhận chuyến</button>
     </div>
   `);
+
+  // Đăng ký sự kiện định dạng tiền cho các ô nhập trong form thêm
+  ['fTripAllowance', 'fTripExpense', 'fTripSalaryAdd', 'fTripSalarySub'].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener('input', function() {
+        const clean = this.value.replace(/\D/g, '');
+        this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+      });
+    }
+  });
 
   window.onTripRouteTemplateChange = function() {
     const routeId = $('fTripRouteId').value;
@@ -4916,21 +4972,21 @@ function showEditTripForm(id) {
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div>
         <label>Phụ cấp chuyến (₫) *</label>
-        <input type="number" id="fTripAllowance" value="${t.allowance || 0}">
+        <input type="text" id="fTripAllowance" value="${formatThousand(t.allowance || 0)}">
       </div>
       <div>
         <label>Chi phí chuyến đi phát sinh (₫)</label>
-        <input type="number" id="fTripExpense" value="${t.expense || 0}">
+        <input type="text" id="fTripExpense" value="${formatThousand(t.expense || 0)}">
       </div>
     </div>
     <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div>
         <label>Các khoản cộng khác (+) (₫)</label>
-        <input type="number" id="fTripSalaryAdd" value="${t.salaryAdd || 0}">
+        <input type="text" id="fTripSalaryAdd" value="${formatThousand(t.salaryAdd || 0)}">
       </div>
       <div>
         <label>Các khoản trừ khác (-) (₫)</label>
-        <input type="number" id="fTripSalarySub" value="${t.salarySub || 0}">
+        <input type="text" id="fTripSalarySub" value="${formatThousand(t.salarySub || 0)}">
       </div>
     </div>
     <div class="form-group">
@@ -4949,6 +5005,17 @@ function showEditTripForm(id) {
       <button class="btn btn-primary" onclick="saveFleetTrip('${t.id}')"><i class="fas fa-save"></i> Cập nhật</button>
     </div>
   `);
+
+  // Đăng ký sự kiện định dạng tiền cho các ô nhập trong form sửa
+  ['fTripAllowance', 'fTripExpense', 'fTripSalaryAdd', 'fTripSalarySub'].forEach(id => {
+    const el = $(id);
+    if (el) {
+      el.addEventListener('input', function() {
+        const clean = this.value.replace(/\D/g, '');
+        this.value = clean ? new Intl.NumberFormat('vi-VN').format(parseInt(clean)) : '';
+      });
+    }
+  });
 
   window.onTripRouteTemplateChange = function() {
     const routeId = $('fTripRouteId').value;
@@ -4986,10 +5053,10 @@ function saveFleetTrip(editingId = null) {
   const endPoint = $('fTripEnd').value.trim();
   const kmActual = parseFloat($('fTripKm').value) || 0;
   const fuelActual = parseFloat($('fTripFuelActual').value) || 0;
-  const allowance = parseFloat($('fTripAllowance').value) || 0;
-  const expense = parseFloat($('fTripExpense').value) || 0;
-  const salaryAdd = parseFloat($('fTripSalaryAdd').value) || 0;
-  const salarySub = parseFloat($('fTripSalarySub').value) || 0;
+  const allowance = parseFloat($('fTripAllowance').value.replace(/\D/g, '')) || 0;
+  const expense = parseFloat($('fTripExpense').value.replace(/\D/g, '')) || 0;
+  const salaryAdd = parseFloat($('fTripSalaryAdd').value.replace(/\D/g, '')) || 0;
+  const salarySub = parseFloat($('fTripSalarySub').value.replace(/\D/g, '')) || 0;
   const notes = $('fTripNotes').value.trim();
   const isVip = $('fTripIsVip') ? $('fTripIsVip').checked : false;
 
@@ -5738,6 +5805,149 @@ function fmtThousands(n) {
   return new Intl.NumberFormat('vi-VN').format(n);
 }
 
+// Hàm hiển thị Modal chốt công nợ với lái xe theo ngày
+function showDriverDailyDebtModal(driverId) {
+  const driver = state.fleetDrivers.find(d => d.id === driverId);
+  if (!driver) return;
+
+  const todayStr = today();
+  openModal(`Chốt Công Nợ Theo Ngày - Lái xe: ${driver.name}`, `
+    <div class="form-group">
+      <label>Chọn ngày chốt công nợ</label>
+      <input type="date" id="fDebtSettleDate" value="${todayStr}" onchange="updateDailyDebtCalculation('${driverId}')">
+    </div>
+    <div id="dailyDebtResultContainer" style="background:rgba(255,255,255,0.02);padding:15px;border-radius:8px;border:1px solid var(--border);margin-bottom:15px">
+      <!-- Kết quả tính toán nợ ngày sẽ hiển thị ở đây -->
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="closeModal()">Đóng</button>
+      <button class="btn btn-primary" onclick="confirmDailyDebtSettlement('${driverId}')"><i class="fas fa-check-double"></i> Xác nhận chốt sổ công nợ</button>
+    </div>
+  `);
+
+  window.updateDailyDebtCalculation = function(drvId) {
+    const settleDate = $('fDebtSettleDate').value;
+    if (!settleDate) return;
+
+    // 1. Tìm tất cả các chuyến đi của lái xe này trong ngày chọn
+    const dayTrips = state.fleetTrips.filter(t => t.driverId === drvId && t.date === settleDate);
+    
+    // 2. Lấy các cấu hình thưởng VIP
+    const bonus2 = getSettingNumber('vip_bonus_2', 100000);
+    const bonus3 = getSettingNumber('vip_bonus_3', 300000);
+    const bonus4 = getSettingNumber('vip_bonus_4', 300000);
+    
+    const vipTrips = dayTrips.filter(t => t.isVip || t.isVip === 'true');
+    const vipCount = vipTrips.length;
+    let dayVipBonus = 0;
+    if (vipCount >= 2) dayVipBonus += bonus2;
+    if (vipCount >= 3) dayVipBonus += bonus3;
+    if (vipCount >= 4) dayVipBonus += (vipCount - 3) * bonus4;
+
+    // 3. Phụ cấp chuyến đi phát sinh trong ngày
+    const dayAllowance = dayTrips.reduce((sum, t) => sum + (Number(t.allowance) || 0), 0);
+    
+    // 4. Các khoản cộng (+) trừ (-) lương chuyến
+    const daySalaryAdd = dayTrips.reduce((sum, t) => sum + (Number(t.salaryAdd) || 0), 0);
+    const daySalarySub = dayTrips.reduce((sum, t) => sum + (Number(t.salarySub) || 0), 0);
+
+    // 5. Chi phí sửa chữa lái xe đã thanh toán hộ trong ngày (lấy từ Nhật ký chung)
+    const dayRepairs = state.entries.filter(e => e.type === 'chi' && e.driverId === drvId && e.date === settleDate);
+    const dayRepairCost = dayRepairs.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+    // Tính toán số tiền Công ty phải trả lái xe trong ngày hôm đó:
+    // Tổng nợ ngày = Phụ cấp chuyến + Thưởng VIP ngày + Các khoản cộng - Các khoản trừ + Chi phí sửa chữa đã chi hộ
+    const totalDayDebt = dayAllowance + dayVipBonus + daySalaryAdd - daySalarySub + dayRepairCost;
+
+    // Kiểm tra xem ngày này đã được tạo giao dịch trả tiền hoặc ghi nhận công nợ hay chưa
+    const checkedEntries = state.entries.filter(e => e.driverId === drvId && e.date === settleDate && e.reason.includes('Chốt công nợ ngày'));
+    const isSettled = checkedEntries.length > 0;
+
+    let html = `
+      <div style="margin-bottom:12px;font-size:0.95rem">
+        <strong>Phân tích tài chính ngày ${settleDate}:</strong>
+      </div>
+      <table style="width:100%;font-size:0.88rem;border-collapse:collapse">
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px 0">Số chuyến vận hành trong ngày:</td><td style="text-align:right;font-weight:600">${dayTrips.length} chuyến (${vipCount} chuyến VIP)</td></tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px 0">Phụ cấp chuyến đi:</td><td style="text-align:right;color:var(--green)">+${fmtThousands(dayAllowance)} ₫</td></tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px 0">Thưởng chuyến VIP tích lũy ngày:</td><td style="text-align:right;color:var(--green)">+${fmtThousands(dayVipBonus)} ₫</td></tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px 0">Cộng thưởng/Trừ phạt chuyến ngày:</td><td style="text-align:right;color:${daySalaryAdd - daySalarySub >= 0 ? 'var(--green)' : 'var(--red)'}">${daySalaryAdd - daySalarySub >= 0 ? '+' : ''}${fmtThousands(daySalaryAdd - daySalarySub)} ₫</td></tr>
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.05)"><td style="padding:6px 0">Sửa chữa xe lái xe đã thanh toán hộ:</td><td style="text-align:right;color:var(--orange)">+${fmtThousands(dayRepairCost)} ₫</td></tr>
+        <tr style="border-top:1px solid var(--border);font-size:1rem;font-weight:700">
+          <td style="padding:10px 0;color:var(--blue)">TỔNG PHẢI TRẢ LÁI XE TRONG NGÀY:</td>
+          <td style="padding:10px 0;text-align:right;color:var(--blue)">${fmtThousands(totalDayDebt)} ₫</td>
+        </tr>
+      </table>
+    `;
+
+    if (isSettled) {
+      html += `
+        <div style="margin-top:15px;padding:8px 12px;background:rgba(16,185,129,0.1);border-radius:6px;border:1px solid rgba(16,185,129,0.2);color:var(--green);font-size:0.85rem;display:flex;align-items:center;gap:8px">
+          <i class="fas fa-check-circle"></i> Ngày này đã được chốt sổ công nợ trên Nhật ký chung.
+        </div>
+      `;
+    } else if (totalDayDebt <= 0) {
+      html += `
+        <div style="margin-top:15px;padding:8px 12px;background:rgba(255,255,255,0.05);border-radius:6px;color:var(--text2);font-size:0.85rem;text-align:center">
+          Không phát sinh công nợ phải thanh toán trong ngày này.
+        </div>
+      `;
+    }
+
+    $('dailyDebtResultContainer').innerHTML = html;
+    $('dailyDebtResultContainer').dataset.totalDebt = totalDayDebt;
+    $('dailyDebtResultContainer').dataset.isSettled = isSettled;
+  };
+
+  window.confirmDailyDebtSettlement = function(drvId) {
+    const settleDate = $('fDebtSettleDate').value;
+    const container = $('dailyDebtResultContainer');
+    const totalDebt = parseFloat(container.dataset.totalDebt) || 0;
+    const isSettled = container.dataset.isSettled === 'true';
+
+    if (isSettled) {
+      return toast('Công nợ ngày này đã được chốt sổ trước đó!', 'error');
+    }
+    if (totalDebt <= 0) {
+      return toast('Không có số dư công nợ để chốt sổ!', 'warning');
+    }
+
+    // Tiến hành chốt sổ: Tự động thêm một giao dịch chi tiền vào Nhật ký chung ghi nhận công nợ lái xe
+    const cleanDrvName = state.fleetDrivers.find(d => d.id === drvId).name;
+    
+    // Tạo đối tượng giao dịch
+    const newEntry = {
+      id: uid(),
+      type: 'chi',
+      date: settleDate,
+      category: 'Nhân công', // Danh mục Lương/nhân công
+      amount: totalDebt,
+      reason: `[Chốt công nợ ngày] Thanh toán công nợ chuyến đi & chi phí sửa chữa ngày ${settleDate} cho lái xe ${cleanDrvName}`,
+      invoice: '',
+      createdBy: state.currentUser.username,
+      createdAt: new Date().toISOString(),
+      stt: getNextSTT(),
+      account: 'cash', // Mặc định từ quỹ tiền mặt
+      driverId: drvId,
+      _unsynced: true
+    };
+
+    state.entries.push(newEntry);
+    saveData();
+    window.sendToCloud({ action: 'saveEntry', entry: newEntry });
+    writeAuditLog('Chốt công nợ lái xe', `Chốt nợ ngày ${settleDate} cho ${cleanDrvName} số tiền ${fmt(totalDebt)}`);
+    toast(`Đã chốt công nợ ngày ${settleDate} thành công cho lái xe ${cleanDrvName}!`);
+    closeModal();
+    
+    // Tải lại các báo cáo và bảng nhật ký để hiển thị dữ liệu mới
+    if (window.renderJournal) window.renderJournal();
+    renderFleetDrivers();
+  };
+
+  // Kích hoạt tính toán công nợ lần đầu
+  window.updateDailyDebtCalculation(driverId);
+}
+
 // Đăng ký các hàm toàn cục cho thẻ HTML gọi
 window.renderFleetPage = renderFleetPage;
 window.renderFleetActiveTab = renderFleetActiveTab;
@@ -5753,3 +5963,4 @@ window.showTripInvoiceZoom = showTripInvoiceZoom;
 window.toggleFleetReportView = toggleFleetReportView;
 window.generateFleetReport = generateFleetReport;
 window.initFleetModule = initFleetModule;
+window.showDriverDailyDebtModal = showDriverDailyDebtModal;
