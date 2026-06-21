@@ -672,6 +672,39 @@
 
                 <!-- TAB 5: REPORTS & SALARY -->
                 <div id="fleetTabReports" class="fleet-tab-content">
+                    <div class="settings-card" id="fleetSalarySettingsCard" style="margin-bottom:18px;padding:14px;border:1px solid var(--card-border);border-radius:8px;background:var(--bg2)">
+                        <h4 style="margin-bottom:12px"><i class="fas fa-hand-holding-usd"></i> Cài Đặt Lương & Cấu Hình Đội Xe</h4>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:15px;margin-bottom:12px;padding:12px;background:rgba(255,255,255,0.02);border-radius:8px">
+                            <div>
+                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Thưởng chuyến VIP thứ 2 (₫)</label>
+                                <input type="text" id="sVipBonus2" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
+                            </div>
+                            <div>
+                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Thưởng chuyến VIP thứ 3 (₫)</label>
+                                <input type="text" id="sVipBonus3" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
+                            </div>
+                            <div>
+                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Thưởng chuyến VIP thứ 4+ (₫)</label>
+                                <input type="text" id="sVipBonus4" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
+                            </div>
+                            <div>
+                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Chọn tháng áp dụng</label>
+                                <input type="month" id="fleetSalaryMonthFilter" onchange="renderFleetSalarySettings()" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
+                            </div>
+                        </div>
+                        <h5 style="margin-bottom:8px;color:var(--text);font-weight:600;font-size:0.95rem"><i class="fas fa-user-edit" style="color:var(--primary)"></i> Điều chỉnh Lương & Hỗ trợ Lái xe thực tế hằng tháng</h5>
+                        <div class="table-wrapper" style="border:1px solid var(--card-border);border-radius:8px;background:rgba(0,0,0,0.05);margin-bottom:12px;padding:8px">
+                            <table>
+                                <thead>
+                                    <tr><th>Tên lái xe</th><th>Lương cơ bản hàng tháng</th><th>Mức hỗ trợ riêng (Nước, điện thoại...)</th><th>Ghi chú hành chính</th><th>Trạng thái</th><th>Thao tác</th></tr>
+                                </thead>
+                                <tbody id="fleetDriversSettingsTable"></tbody>
+                            </table>
+                        </div>
+                        <button class="btn btn-success" id="btnSaveFleetSalarySettings" style="margin-top:6px">
+                            <i class="fas fa-save"></i> Lưu cấu hình Đội xe
+                        </button>
+                    </div>
                     <div class="report-filters" style="margin-bottom:18px">
                         <div class="form-group">
                             <label>Kiểu báo cáo</label>
@@ -789,39 +822,7 @@
                             <i class="fas fa-plus"></i> Thêm tài khoản mới
                         </button>
                     </div>
-                    <div class="settings-card" id="fleetSalarySettingsCard" style="grid-column:1/-1;margin-top:10px">
-                        <h4><i class="fas fa-hand-holding-usd"></i> Cài Đặt Lương & Cấu Hình Đội Xe</h4>
-                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:15px;margin-bottom:20px;padding:18px;background:rgba(255,255,255,0.02);border-radius:10px;border:1px solid var(--card-border)">
-                            <div>
-                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Thưởng chuyến VIP thứ 2 (₫)</label>
-                                <input type="text" id="sVipBonus2" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
-                            </div>
-                            <div>
-                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Thưởng chuyến VIP thứ 3 (₫)</label>
-                                <input type="text" id="sVipBonus3" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
-                            </div>
-                            <div>
-                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Thưởng chuyến VIP thứ 4+ (₫)</label>
-                                <input type="text" id="sVipBonus4" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
-                            </div>
-                            <div>
-                                <label style="font-size:0.82rem;color:var(--text2);font-weight:600">Chọn tháng áp dụng</label>
-                                <input type="month" id="fleetSalaryMonthFilter" onchange="renderFleetSalarySettings()" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--card-border);margin-top:6px;background:var(--bg);color:var(--text);font-weight:600">
-                            </div>
-                        </div>
-                        <h5 style="margin-bottom:12px;color:var(--text);font-weight:600;font-size:0.95rem"><i class="fas fa-user-edit" style="color:var(--primary)"></i> Điều chỉnh Lương & Hỗ trợ Lái xe thực tế hằng tháng</h5>
-                        <div class="table-wrapper" style="border:1px solid var(--card-border);border-radius:8px;background:rgba(0,0,0,0.1)">
-                            <table>
-                                <thead>
-                                    <tr><th>Tên lái xe</th><th>Lương cơ bản hàng tháng</th><th>Mức hỗ trợ riêng (Nước, điện thoại...)</th><th>Ghi chú hành chính</th><th>Trạng thái</th><th>Thao tác</th></tr>
-                                </thead>
-                                <tbody id="fleetDriversSettingsTable"></tbody>
-                            </table>
-                        </div>
-                        <button class="btn btn-success" id="btnSaveFleetSalarySettings" style="margin-top:16px">
-                            <i class="fas fa-save"></i> Lưu cấu hình Đội xe
-                        </button>
-                    </div>
+                    <!-- fleetSalarySettingsCard moved to Reports tab for easier control -->
                 </div>
             </section>
         </main>
