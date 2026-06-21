@@ -5418,8 +5418,10 @@ function renderFleetSalaryReport(trips) {
     const baseSalary = Number(driver.baseSalary) || 0;
 
     // Chi phí sửa chữa lái xe đã chi (Mục 4) lấy từ Nhật ký chung hạng mục chi có liên kết lái xe này
+    // Chi phí sửa chữa lái xe đã chi (Mục 4) lấy từ Nhật ký chung hạng mục chi có liên kết lái xe này
+    // Chỉ tính vào quyết toán khi bộ phận Kiểm soát xác nhận (auditStatus === 'valid')
     const repairCostSum = state.entries
-      .filter(e => e.type === 'chi' && e.driverId === driver.id)
+      .filter(e => e.type === 'chi' && e.driverId === driver.id && e.auditStatus === 'valid')
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
     // Tính lương lái xe A = 1 + 2 + 3 (Cơ bản + Thưởng chuyến + Hỗ trợ riêng đã duyệt theo tháng)
@@ -5611,7 +5613,7 @@ function exportFleetReport() {
       const allowanceVal = Number(driver.allowance) || 0;
       
       const repairCostSum = state.entries
-        .filter(e => e.type === 'chi' && e.driverId === driver.id)
+        .filter(e => e.type === 'chi' && e.driverId === driver.id && e.auditStatus === 'valid')
         .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
       const netSalaryA = baseSalary + vipBonusTotal + allowanceVal;
@@ -5776,7 +5778,7 @@ function printFleetReport() {
       const allowanceVal = Number(driver.allowance) || 0;
       
       const repairCostSum = state.entries
-        .filter(e => e.type === 'chi' && e.driverId === driver.id)
+        .filter(e => e.type === 'chi' && e.driverId === driver.id && e.auditStatus === 'valid')
         .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
       const netSalaryA = baseSalary + vipBonusTotal + allowanceVal;
