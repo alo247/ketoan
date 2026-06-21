@@ -260,6 +260,13 @@ tbody tr:hover{background:rgba(255,255,255,.03)}
 .settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:18px}
 .settings-card p{color:var(--text2);font-size:.88rem;line-height:1.6}
 
+/* Compact settings tables for admin lists to save vertical space */
+.compact-settings-table table thead th{padding:8px 10px;font-size:.72rem}
+.compact-settings-table table tbody td{padding:8px 10px;font-size:.82rem}
+.compact-settings-table .btn{padding:7px 10px;font-size:.8rem}
+.compact-settings-table table thead th, .compact-settings-table table tbody td{white-space:normal}
+.settings-card h4{font-size:0.95rem}
+
 /* MODAL */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:9998;animation:fadeIn .2s ease}
 .modal-card{background:var(--bg2);border:1px solid var(--card-border);border-radius:var(--radius);width:460px;max-width:92vw;max-height:90vh;overflow-y:auto;animation:fadeInUp .3s ease}
