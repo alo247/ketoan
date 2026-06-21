@@ -50,6 +50,21 @@ const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 
 const getNextSTT = () => state.entries.length > 0 ? Math.max(...state.entries.map(e => Number(e.stt) || 0)) + 1 : 1;
 const formatThousand = val => (val || val === 0) ? new Intl.NumberFormat('vi-VN').format(val) : '';
 const isVipTripValue = val => val === true || val === 1 || val === '1' || String(val).toLowerCase() === 'true';
+const normalizeFleetTrip = trip => {
+  if (!trip) return trip;
+  return {
+    ...trip,
+    date: normalizeDate(trip.date),
+    isVip: isVipTripValue(trip.isVip),
+    kmActual: Number(trip.kmActual) || 0,
+    fuelActual: Number(trip.fuelActual) || 0,
+    fuelNorm: Number(trip.fuelNorm) || 0,
+    allowance: Number(trip.allowance) || 0,
+    expense: Number(trip.expense) || 0,
+    salaryAdd: Number(trip.salaryAdd) || 0,
+    salarySub: Number(trip.salarySub) || 0
+  };
+};
 
 function getMonthKeyFromDate(dateStr) {
   const d = new Date(normalizeDate(dateStr));
@@ -310,6 +325,8 @@ async function loadData(silent = false) {
       const cacheBustUrl = SCRIPT_URL + (SCRIPT_URL.includes('?') ? '&' : '?') + '_t=' + Date.now();
       const res = await fetch(cacheBustUrl);
       const data = await res.json();
+      // Debug: expose last cloud payload for troubleshooting merge issues
+      try { window._lastCloudData = data; } catch (e) { /* ignore in strict contexts */ }
 
       const serverEntries = data.entries || [];
       const localEntries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
@@ -516,19 +533,39 @@ async function loadData(silent = false) {
       localFleetTrips.forEach(le => {
         const se = serverFleetTrips.find(x => x.id === le.id);
         if (!se) {
-          if (le._unsynced) mergedFleetTrips.push(le);
+          // If server doesn't have the trip, preserve the local copy
+          // (do not require _unsynced) to avoid losing newly created trips
+          mergedFleetTrips.push(le);
         } else {
-          if (le.invoice && le.invoice.startsWith('data:') && !se.invoice) {
-            const idx = mergedFleetTrips.findIndex(x => x.id === se.id);
-            if (idx !== -1) mergedFleetTrips[idx].invoice = le.invoice;
-          }
-          if (le._unsynced) {
-            const idx = mergedFleetTrips.findIndex(x => x.id === se.id);
-            if (idx !== -1) mergedFleetTrips[idx] = { ...mergedFleetTrips[idx], ...le };
+          // If both exist, prefer local values (user intent) while preserving
+          // server invoice when local doesn't carry a data: image blob
+          const idx = mergedFleetTrips.findIndex(x => x.id === se.id);
+          if (idx !== -1) {
+            // If local provides a data: invoice (new upload), use it
+            if (le.invoice && String(le.invoice).startsWith('data:')) {
+              mergedFleetTrips[idx].invoice = le.invoice;
+            }
+            // Merge local values on top of server so local edits (like isVip)
+            // are not lost during the cloud->local merge
+            mergedFleetTrips[idx] = { ...mergedFleetTrips[idx], ...le };
           }
         }
       });
-      state.fleetTrips = mergedFleetTrips;
+      state.fleetTrips = (mergedFleetTrips || []).map(normalizeFleetTrip);
+      // Defensive: if localStorage had a trip marked VIP true, preserve it
+      try {
+        const rawLocal = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
+        const localMap = new Map((rawLocal || []).map(x => [x.id, x]));
+        state.fleetTrips = state.fleetTrips.map(t => {
+          const local = localMap.get(t.id);
+          if (local && (local.isVip === true || String(local.isVip).toLowerCase() === 'true')) {
+            return { ...t, isVip: true };
+          }
+          return t;
+        });
+      } catch (e) {
+        // ignore parse errors
+      }
 
       // Thuật toán gộp cho System Settings
       const serverSettings = data.systemSettings || [];
@@ -605,10 +642,7 @@ async function loadData(silent = false) {
       });
     }
     if (state.fleetTrips) {
-      state.fleetTrips.forEach(t => {
-        t.date = normalizeDate(t.date);
-        t.isVip = isVipTripValue(t.isVip);
-      });
+      state.fleetTrips = state.fleetTrips.map(normalizeFleetTrip);
     }
 
     // Tự động gán STT cố định cho chứng từ cũ (Auto-Migration)
@@ -5101,7 +5135,7 @@ function showEditTripForm(id) {
       </div>
       <div style="display:flex;align-items:center;margin-top:20px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none;margin-bottom:0">
-          <input type="checkbox" id="fTripIsVip" style="width:18px;height:18px;cursor:pointer" ${t.isVip ? 'checked' : ''}>
+          <input type="checkbox" id="fTripIsVip" style="width:18px;height:18px;cursor:pointer" ${isVipTripValue(t.isVip) ? 'checked' : ''}>
           <strong>Chuyến VIP</strong>
         </label>
       </div>
@@ -5240,11 +5274,11 @@ function saveFleetTrip(editingId = null) {
   const oldTrip = editingId ? state.fleetTrips.find(x => x.id === editingId) : null;
   const invoice = oldTrip ? oldTrip.invoice : '';
 
-  const trip = {
+  const trip = normalizeFleetTrip({
     id, date, driverId, vehicleId, routeId, startPoint, endPoint,
     kmActual, fuelActual, fuelNorm: 0, allowance, expense,
     salaryAdd, salarySub, notes, invoice, isVip
-  };
+  });
 
   // Tính ngay dầu định mức tại client để cập nhật giao diện lập tức
   trip.fuelNorm = getTripFuelNorm(trip);
