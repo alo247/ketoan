@@ -1,29 +1,227 @@
 // GOOGLE APPS SCRIPT: HỆ THỐNG KẾ TOÁN NỘI BỘ PREMIUM
 // Cập nhật: Hỗ trợ kiểm soát soát xét (auditStatus, auditNote), tự động nâng cấp cấu trúc cột CSDL online
 // Bổ sung: Đồng bộ đám mây thời gian thực chéo thiết bị cho Tạm ứng (advances), Công nợ (debts), Audit Logs (auditLogs)
+// Tối ưu hóa: Bảo mật API xác thực, mã hóa băm mật khẩu SHA-256 (auto-migration) và Cache phân mảnh tốc độ cao.
 
+// -------------------------------------------------------------
+// HELPER BẢO MẬT & XÁC THỰC (AUTHENTICATION & SHA-256)
+// -------------------------------------------------------------
+function authenticate(ss, username, password) {
+  if (!username || !password) return null;
+  
+  var users = getUsersList(ss);
+  var user = null;
+  for (var i = 0; i < users.length; i++) {
+    if (users[i].username === username) {
+      user = users[i];
+      break;
+    }
+  }
+  
+  if (!user) return null;
+  
+  var storedPassword = String(user.password || "");
+  var isMatched = false;
+  
+  if (storedPassword.indexOf("$sha256$") === 0) {
+    var storedHash = storedPassword.substring(8);
+    isMatched = (password === storedHash);
+  } else {
+    // Plain-text password cũ
+    var computedHash = computeSHA256(storedPassword);
+    isMatched = (password === computedHash);
+    
+    // Auto-migration: Cập nhật mật khẩu trong sheet thành dạng băm để bảo vệ an toàn
+    if (isMatched) {
+      try {
+        var usersSheet = ss.getSheetByName("users");
+        var values = usersSheet.getDataRange().getValues();
+        for (var r = 1; r < values.length; r++) {
+          if (values[r][0] === username) {
+            usersSheet.getRange(r + 1, 2).setValue("$sha256$" + computedHash);
+            break;
+          }
+        }
+        clearUsersCache(); // Xóa cache users
+        clearSheetCache("users");
+      } catch (e) {
+        Logger.log("Lỗi auto-migration password: " + e.toString());
+      }
+    }
+  }
+  
+  return isMatched ? user : null;
+}
+
+function computeSHA256(input) {
+  var rawHash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, input, Utilities.Charset.UTF_8);
+  var output = "";
+  for (var i = 0; i < rawHash.length; i++) {
+    var byteValue = rawHash[i];
+    if (byteValue < 0) byteValue += 256;
+    var byteString = byteValue.toString(16);
+    if (byteString.length == 1) byteString = "0" + byteString;
+    output += byteString;
+  }
+  return output;
+}
+
+function getUsersList(ss) {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get("tc_users_list_v1");
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {}
+  }
+  
+  var usersSheet = ss.getSheetByName("users");
+  var data = getSheetData(usersSheet);
+  cache.put("tc_users_list_v1", JSON.stringify(data), 3600); // cache trong 1 giờ
+  return data;
+}
+
+function clearUsersCache() {
+  CacheService.getScriptCache().remove("tc_users_list_v1");
+}
+
+// -------------------------------------------------------------
+// HELPER CACHE DỮ LIỆU LỚN PHÂN MẢNH (LARGE CACHE HELPER)
+// -------------------------------------------------------------
+function cachePutLarge(key, dataString, expiration) {
+  var cache = CacheService.getScriptCache();
+  if (!dataString) {
+    cacheRemoveLarge(key);
+    return;
+  }
+  
+  var chunkSize = 80 * 1024; // 80KB mỗi mảnh để tránh vượt ngưỡng 100KB của Apps Script
+  var chunksCount = Math.ceil(dataString.length / chunkSize);
+  
+  cache.put(key + "_chunks", String(chunksCount), expiration);
+  
+  for (var i = 0; i < chunksCount; i++) {
+    var chunk = dataString.substring(i * chunkSize, (i + 1) * chunkSize);
+    cache.put(key + "_chunk_" + i, chunk, expiration);
+  }
+}
+
+function cacheGetLarge(key) {
+  var cache = CacheService.getScriptCache();
+  var chunksCountStr = cache.get(key + "_chunks");
+  if (!chunksCountStr) return null;
+  
+  var chunksCount = parseInt(chunksCountStr);
+  var dataString = "";
+  
+  for (var i = 0; i < chunksCount; i++) {
+    var chunk = cache.get(key + "_chunk_" + i);
+    if (chunk === null) return null; // Thiếu mảnh coi như hỏng cache
+    dataString += chunk;
+  }
+  
+  return dataString;
+}
+
+function cacheRemoveLarge(key) {
+  var cache = CacheService.getScriptCache();
+  var chunksCountStr = cache.get(key + "_chunks");
+  if (chunksCountStr) {
+    var chunksCount = parseInt(chunksCountStr);
+    for (var i = 0; i < chunksCount; i++) {
+      cache.remove(key + "_chunk_" + i);
+    }
+  }
+  cache.remove(key);
+  cache.remove(key + "_chunks");
+}
+
+function getSheetDataWithCache(ss, sheetName) {
+  var cacheKey = "tc_sheet_cache_" + sheetName;
+  var cachedData = cacheGetLarge(cacheKey);
+  if (cachedData) {
+    try {
+      return JSON.parse(cachedData);
+    } catch (e) {}
+  }
+  
+  var sheet = ss.getSheetByName(sheetName);
+  var data = getSheetData(sheet);
+  
+  cachePutLarge(cacheKey, JSON.stringify(data), 21600); // Cache 6 giờ
+  return data;
+}
+
+function clearSheetCache(sheetName) {
+  cacheRemoveLarge("tc_sheet_cache_" + sheetName);
+}
+
+function getCategoriesDataCached(ss) {
+  var cacheKey = "tc_sheet_cache_categories_data";
+  var cached = CacheService.getScriptCache().get(cacheKey);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (e) {}
+  }
+  
+  var sheet = ss.getSheetByName("categories");
+  var data = getCategoriesData(sheet);
+  CacheService.getScriptCache().put(cacheKey, JSON.stringify(data), 21600);
+  return data;
+}
+
+function clearCategoriesCache() {
+  CacheService.getScriptCache().remove("tc_sheet_cache_categories_data");
+  clearSheetCache("categories");
+}
+
+function getSystemDataWithCache(ss, user) {
+  var entries = getSheetDataWithCache(ss, "entries");
+  var advances = getSheetDataWithCache(ss, "advances");
+  
+  // Phân quyền giới hạn: Nhân viên chỉ được lấy tạm ứng của chính mình
+  if (user && user.role === "staff") {
+    advances = advances.filter(function(a) { return a.employee === user.username; });
+  }
+
+  return {
+    entries: entries,
+    users: getSheetDataWithCache(ss, "users"),
+    categories: getCategoriesDataCached(ss),
+    advances: advances,
+    debts: getSheetDataWithCache(ss, "debts"),
+    auditLogs: getSheetDataWithCache(ss, "auditLogs"),
+    accounts: getSheetDataWithCache(ss, "accounts"),
+    fleetVehicles: getSheetDataWithCache(ss, "fleetVehicles"),
+    fleetDrivers: getSheetDataWithCache(ss, "fleetDrivers"),
+    fleetRoutes: getSheetDataWithCache(ss, "fleetRoutes"),
+    fleetTrips: getSheetDataWithCache(ss, "fleetTrips"),
+    systemSettings: getSheetDataWithCache(ss, "systemSettings"),
+    fleetMonthlySupport: getSheetDataWithCache(ss, "fleetMonthlySupport"),
+    fleetPayrollHistory: getSheetDataWithCache(ss, "fleetPayrollHistory"),
+    fleetSalaryStatements: getSheetDataWithCache(ss, "fleetSalaryStatements")
+  };
+}
+
+// -------------------------------------------------------------
+// ROUTER CHÍNH (GET & POST ENDPOINTS)
+// -------------------------------------------------------------
 function doGet(e) {
   try {
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     initDatabase(ss);
     
-    var data = {
-      entries: getSheetData(ss.getSheetByName("entries")),
-      users: getSheetData(ss.getSheetByName("users")),
-      categories: getCategoriesData(ss.getSheetByName("categories")),
-      advances: getSheetData(ss.getSheetByName("advances")),
-      debts: getSheetData(ss.getSheetByName("debts")),
-      auditLogs: getSheetData(ss.getSheetByName("auditLogs")),
-      accounts: getSheetData(ss.getSheetByName("accounts")),
-      fleetVehicles: getSheetData(ss.getSheetByName("fleetVehicles")),
-      fleetDrivers: getSheetData(ss.getSheetByName("fleetDrivers")),
-      fleetRoutes: getSheetData(ss.getSheetByName("fleetRoutes")),
-      fleetTrips: getSheetData(ss.getSheetByName("fleetTrips")),
-      systemSettings: getSheetData(ss.getSheetByName("systemSettings")),
-      fleetMonthlySupport: getSheetData(ss.getSheetByName("fleetMonthlySupport")),
-      fleetPayrollHistory: getSheetData(ss.getSheetByName("fleetPayrollHistory")),
-      fleetSalaryStatements: getSheetData(ss.getSheetByName("fleetSalaryStatements"))
-    };
+    var username = e.parameter.u;
+    var password = e.parameter.p;
+    
+    var user = authenticate(ss, username, password);
+    if (!user) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Unauthorized" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    var data = getSystemDataWithCache(ss, user);
     
     return ContentService.createTextOutput(JSON.stringify(data))
       .setMimeType(ContentService.MimeType.JSON);
@@ -39,67 +237,113 @@ function doPost(e) {
     initDatabase(ss);
     
     var payload = JSON.parse(e.postData.contents);
+    var auth = payload.auth || {};
+    
+    var user = authenticate(ss, auth.username, auth.password);
+    if (!user) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Unauthorized" }))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+    
     var action = payload.action;
     var result = { success: true };
     
     if (action === "saveEntry") {
       result = saveEntry(ss, payload.entry, payload.fileData);
+      clearSheetCache("entries");
     } else if (action === "deleteEntry") {
       result = deleteEntry(ss, payload.id);
+      clearSheetCache("entries");
     } else if (action === "saveUser") {
       result = saveUser(ss, payload.user);
+      clearSheetCache("users");
+      clearUsersCache();
     } else if (action === "deleteUser") {
       result = deleteUser(ss, payload.username);
+      clearSheetCache("users");
+      clearUsersCache();
     } else if (action === "saveCat") {
       result = saveCat(ss, payload.type, payload.name);
+      clearCategoriesCache();
     } else if (action === "updateCat") {
       result = updateCat(ss, payload.type, payload.idx, payload.name, payload.oldName);
+      clearCategoriesCache();
+      clearSheetCache("entries");
     } else if (action === "deleteCat") {
       result = deleteCat(ss, payload.type, payload.idx);
+      clearCategoriesCache();
     } else if (action === "clearJournal") {
       result = clearJournal(ss);
+      clearSheetCache("entries");
     } else if (action === "restoreAll") {
       result = restoreAll(ss, payload.entries, payload.users, payload.categories, payload.advances, payload.debts, payload.auditLogs, payload.accounts, payload.fleetVehicles, payload.fleetDrivers, payload.fleetRoutes, payload.fleetTrips, payload.systemSettings, payload.fleetMonthlySupport, payload.fleetPayrollHistory);
+      var sheets = ["entries", "users", "categories", "advances", "debts", "auditLogs", "accounts", "fleetVehicles", "fleetDrivers", "fleetRoutes", "fleetTrips", "systemSettings", "fleetMonthlySupport", "fleetPayrollHistory", "fleetSalaryStatements"];
+      for (var i = 0; i < sheets.length; i++) {
+        clearSheetCache(sheets[i]);
+      }
+      clearCategoriesCache();
+      clearUsersCache();
     } else if (action === "saveAdvance") {
       result = saveAdvance(ss, payload.advance, payload.fileData);
+      clearSheetCache("advances");
     } else if (action === "deleteAdvance") {
       result = deleteAdvance(ss, payload.id);
+      clearSheetCache("advances");
     } else if (action === "saveDebt") {
       result = saveDebt(ss, payload.debt);
+      clearSheetCache("debts");
     } else if (action === "deleteDebt") {
       result = deleteDebt(ss, payload.id);
+      clearSheetCache("debts");
     } else if (action === "saveAuditLog") {
       result = saveAuditLog(ss, payload.auditLog);
+      clearSheetCache("auditLogs");
     } else if (action === "clearAuditLogs") {
       result = clearAuditLogs(ss);
+      clearSheetCache("auditLogs");
     } else if (action === "saveAccount") {
       result = saveAccount(ss, payload.account);
+      clearSheetCache("accounts");
     } else if (action === "deleteAccount") {
       result = deleteAccount(ss, payload.name);
+      clearSheetCache("accounts");
+      clearSheetCache("entries");
     } else if (action === "saveFleetVehicle") {
       result = saveFleetVehicle(ss, payload.vehicle);
+      clearSheetCache("fleetVehicles");
     } else if (action === "deleteFleetVehicle") {
       result = deleteFleetVehicle(ss, payload.id);
+      clearSheetCache("fleetVehicles");
     } else if (action === "saveFleetDriver") {
       result = saveFleetDriver(ss, payload.driver);
+      clearSheetCache("fleetDrivers");
     } else if (action === "deleteFleetDriver") {
       result = deleteFleetDriver(ss, payload.id);
+      clearSheetCache("fleetDrivers");
     } else if (action === "saveFleetRoute") {
       result = saveFleetRoute(ss, payload.route);
+      clearSheetCache("fleetRoutes");
     } else if (action === "deleteFleetRoute") {
       result = deleteFleetRoute(ss, payload.id);
+      clearSheetCache("fleetRoutes");
     } else if (action === "saveFleetTrip") {
       result = saveFleetTrip(ss, payload.trip, payload.fileData);
+      clearSheetCache("fleetTrips");
     } else if (action === "deleteFleetTrip") {
       result = deleteFleetTrip(ss, payload.id);
+      clearSheetCache("fleetTrips");
     } else if (action === "saveFleetMonthlySupport") {
       result = saveFleetMonthlySupport(ss, payload.rule);
+      clearSheetCache("fleetMonthlySupport");
     } else if (action === "saveFleetPayrollHistory") {
       result = saveFleetPayrollHistory(ss, payload.snapshot);
+      clearSheetCache("fleetPayrollHistory");
     } else if (action === "saveSystemSettings") {
       result = saveSystemSettings(ss, payload.settings);
+      clearSheetCache("systemSettings");
     } else if (action === "saveFleetSalaryStatement") {
       result = saveFleetSalaryStatement(ss, payload.statement);
+      clearSheetCache("fleetSalaryStatements");
     } else {
       result = { success: false, error: "Hành động không hợp lệ: " + action };
     }
@@ -365,7 +609,7 @@ function getSheetData(sheet) {
       if (header === "amount" || header === "stt" || header === "settledAmount") {
         obj[header] = Number(val) || 0;
       } else if (header === "isVip") {
-        obj[header] = val === true || val === "true" || val === "TRUE" || val === 1 || val === "1";
+        obj[header] = val === true || val === 1 || val === "1" || String(val).toLowerCase() === "true";
       } else if (val instanceof Date) {
         if (header === "date" || header === "dueDate" || header === "settledDate" || header === "paymentDate") {
           var yyyy = val.getFullYear();
@@ -1342,7 +1586,7 @@ function saveFleetTrip(ss, trip, fileData) {
     } else if (["kmActual", "fuelActual", "fuelNorm", "allowance", "revenue", "expense", "salaryAdd", "salarySub"].includes(header)) {
       rowValues.push(Number(val) || 0);
     } else if (header === "isVip") {
-      rowValues.push(val === true || val === "true" || val === "TRUE" || val === 1 || val === "1");
+      rowValues.push(val === true || val === 1 || val === "1" || String(val).toLowerCase() === "true");
     } else {
       rowValues.push(val);
     }

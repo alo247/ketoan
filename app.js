@@ -3,6 +3,22 @@
 // Ví dụ: const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzhT9Uf9uPbCHjWTuR17cf_YT9U9gsvFg3casxvEBESg2BqxhuoyolxTRsqNhIVxEE/exec';
 
+/* ===== SECURITY HELPERS ===== */
+async function hashPasswordSHA256(password) {
+  if (!password) return '';
+  const msgBuffer = new TextEncoder().encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function getAuthCredentials() {
+  return {
+    username: sessionStorage.getItem('tc_username') || '',
+    password: sessionStorage.getItem('tc_password') || ''
+  };
+}
+
 
 /* ===== DATA & STATE ===== */
 const DEFAULT_USERS = [
@@ -181,10 +197,18 @@ document.addEventListener('visibilitychange', async () => {
 
 window.sendToCloud = async function (payload) {
   if (!SCRIPT_URL || !SCRIPT_URL.startsWith('http')) return;
+  const creds = getAuthCredentials();
+  const payloadWithAuth = {
+    ...payload,
+    auth: {
+      username: creds.username,
+      password: creds.password
+    }
+  };
   try {
     const res = await fetch(SCRIPT_URL, {
       method: 'POST',
-      body: JSON.stringify(payload),
+      body: JSON.stringify(payloadWithAuth),
       headers: { 'Content-Type': 'text/plain' }
     });
     const data = await res.json();
@@ -310,6 +334,15 @@ window.sendToCloud = async function (payload) {
 };
 
 async function loadData(silent = false) {
+  const creds = getAuthCredentials();
+  if (!creds.username || !creds.password) {
+    const loginScr = $('loginScreen');
+    const mainAp = $('mainApp');
+    if (loginScr) loginScr.classList.remove('hidden');
+    if (mainAp) mainAp.classList.add('hidden');
+    return;
+  }
+
   const loadingId = 'cloudLoading';
   let loadingEl = $(loadingId);
   if (!silent && !loadingEl && SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
@@ -321,10 +354,13 @@ async function loadData(silent = false) {
 
   try {
     if (SCRIPT_URL && SCRIPT_URL.startsWith('http')) {
-      // Tải dữ liệu kèm cơ chế Cache-Busting để luôn nhận dữ liệu mới nhất
-      const cacheBustUrl = SCRIPT_URL + (SCRIPT_URL.includes('?') ? '&' : '?') + '_t=' + Date.now();
+      const authParams = `&u=${encodeURIComponent(creds.username)}&p=${encodeURIComponent(creds.password)}`;
+      const cacheBustUrl = SCRIPT_URL + (SCRIPT_URL.includes('?') ? '&' : '?') + '_t=' + Date.now() + authParams;
       const res = await fetch(cacheBustUrl);
       const data = await res.json();
+      if (data && data.success === false && (data.error === "Unauthorized" || String(data.error).includes("Unauthorized"))) {
+        throw new Error("Unauthorized");
+      }
       // Debug: expose last cloud payload for troubleshooting merge issues
       try { window._lastCloudData = data; } catch (e) { /* ignore in strict contexts */ }
 
@@ -826,17 +862,93 @@ function renderAuditLogs() {
 
 /* ===== AUTH ===== */
 function initLogin() {
-  $('btnLogin').addEventListener('click', () => {
+  $('btnLogin').addEventListener('click', async () => {
     const u = $('loginUser').value.trim();
     const p = $('loginPass').value;
-    const effectiveUsers = Array.isArray(state.users) && state.users.length > 0 ? state.users : DEFAULT_USERS;
-    const user = effectiveUsers.find(x => x.username === u && x.password === p);
-    if (!user) { $('loginError').textContent = 'Sai tên đăng nhập hoặc mật khẩu!'; return; }
-    state.currentUser = user;
-    $('loginScreen').classList.add('hidden');
-    $('mainApp').classList.remove('hidden');
-    onLogin();
+    if (!u || !p) {
+      $('loginError').textContent = 'Vui lòng nhập đầy đủ tên đăng nhập và mật khẩu!';
+      return;
+    }
+    
+    $('loginError').textContent = '';
+    $('btnLogin').disabled = true;
+    const originalBtnHtml = $('btnLogin').innerHTML;
+    $('btnLogin').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang đăng nhập...';
+    
+    try {
+      const hashedPassword = await hashPasswordSHA256(p);
+      sessionStorage.setItem('tc_username', u);
+      sessionStorage.setItem('tc_password', hashedPassword);
+      
+      await loadData(false);
+      
+      const user = state.users.find(x => x.username === u);
+      if (user) {
+        state.currentUser = user;
+        $('loginScreen').classList.add('hidden');
+        $('mainApp').classList.remove('hidden');
+        onLogin();
+      } else {
+        throw new Error("UserNotFound");
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      sessionStorage.removeItem('tc_username');
+      sessionStorage.removeItem('tc_password');
+      
+      if (err.message === "Unauthorized" || err.message === "UserNotFound") {
+        $('loginError').textContent = 'Sai tên đăng nhập hoặc mật khẩu!';
+      } else {
+        // Fallback offline
+        try {
+          const localUsers = JSON.parse(localStorage.getItem('tc_users') || '[]');
+          const user = localUsers.find(x => x.username === u);
+          if (user) {
+            const hashedPassword = await hashPasswordSHA256(p);
+            let isMatched = false;
+            if (user.password.startsWith('$sha256$')) {
+              isMatched = (hashedPassword === user.password.substring(8));
+            } else {
+              isMatched = (p === user.password);
+            }
+            
+            if (isMatched) {
+              sessionStorage.setItem('tc_username', u);
+              sessionStorage.setItem('tc_password', hashedPassword);
+              state.currentUser = user;
+              
+              state.entries = JSON.parse(localStorage.getItem('tc_entries') || '[]');
+              state.advances = JSON.parse(localStorage.getItem('tc_advances') || '[]');
+              state.debts = JSON.parse(localStorage.getItem('tc_debts') || '[]');
+              state.auditLogs = JSON.parse(localStorage.getItem('tc_audit_logs') || '[]');
+              state.accounts = window.getAccounts ? window.getAccounts() : [];
+              state.fleetVehicles = JSON.parse(localStorage.getItem('tc_fleet_vehicles') || '[]');
+              state.fleetDrivers = JSON.parse(localStorage.getItem('tc_fleet_drivers') || '[]');
+              state.fleetMonthlySupport = JSON.parse(localStorage.getItem('tc_fleet_monthly_support') || '[]');
+              state.fleetPayrollHistory = JSON.parse(localStorage.getItem('tc_fleet_payroll_history') || '[]');
+              state.fleetRoutes = JSON.parse(localStorage.getItem('tc_fleet_routes') || '[]');
+              state.fleetTrips = JSON.parse(localStorage.getItem('tc_fleet_trips') || '[]');
+              state.systemSettings = JSON.parse(localStorage.getItem('tc_system_settings') || '[]');
+              rebuildIndexes();
+              
+              $('loginScreen').classList.add('hidden');
+              $('mainApp').classList.remove('hidden');
+              onLogin();
+              toast("Đã đăng nhập ở chế độ ngoại tuyến!", "info");
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("Offline auth failed:", e);
+        }
+        $('loginError').textContent = 'Kết nối mạng thất bại hoặc thông tin đăng nhập sai!';
+      }
+    } finally {
+      $('btnLogin').disabled = false;
+      $('btnLogin').innerHTML = originalBtnHtml;
+    }
   });
+  
   $('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') $('btnLogin').click(); });
 
   const toggleBtn = $('btnToggleLoginPass');
@@ -855,12 +967,10 @@ function onLogin() {
   $('currentUserName').textContent = state.currentUser.username;
   $('currentUserRole').textContent = state.currentUser.label;
 
-  // Hiển thị các mục menu bên dựa vào phân quyền chi tiết
   configureNavigationForRole();
 
   $('todayDate').textContent = new Date().toLocaleDateString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
   
-  // Ghi nhận nhật ký audit
   writeAuditLog('Đăng nhập', `Đăng nhập thành công vào hệ thống với vai trò ${state.currentUser.label}`);
   
   renderDashboard();
@@ -870,6 +980,8 @@ function onLogin() {
 $('btnLogout').addEventListener('click', () => {
   writeAuditLog('Đăng xuất', 'Đăng xuất khỏi hệ thống');
   state.currentUser = null;
+  sessionStorage.removeItem('tc_username');
+  sessionStorage.removeItem('tc_password');
   $('mainApp').classList.add('hidden');
   $('loginScreen').classList.remove('hidden');
   $('loginUser').value = '';
@@ -2793,7 +2905,7 @@ $('btnAddUser').addEventListener('click', () => {
   `);
 });
 
-window.saveNewUser = function () {
+window.saveNewUser = async function () {
   const username = $('fNewUser').value.trim();
   const password = $('fNewPass').value;
   const role = $('fNewRole').value;
@@ -2819,7 +2931,8 @@ window.saveNewUser = function () {
     label = 'Ban kiểm soát';
   }
 
-  const newUser = { username, password, role, label, permissions };
+  const hashedPassword = await hashPasswordSHA256(password);
+  const newUser = { username, password: `$sha256$${hashedPassword}`, role, label, permissions };
   state.users.push(newUser);
   saveData();
   window.sendToCloud({ action: 'saveUser', user: newUser });
@@ -4267,15 +4380,52 @@ async function runPolling() {
 }
 
 (async function () {
-  await loadData();
-  initLogin();
   initTheme();
+  initLogin();
   window.populateFilterCategories();
   wireUpAdvancedModules();
   initFleetModule();
   
-  // Thiết lập tự động đồng bộ hóa thời gian thực (background adaptive polling)
-  runPolling();
+  const creds = getAuthCredentials();
+  if (creds.username && creds.password) {
+    try {
+      await loadData(false);
+      const user = state.users.find(x => x.username === creds.username);
+      if (user) {
+        state.currentUser = user;
+        const loginScr = $('loginScreen');
+        const mainAp = $('mainApp');
+        if (loginScr) loginScr.classList.add('hidden');
+        if (mainAp) mainAp.classList.remove('hidden');
+        onLogin();
+        runPolling();
+      } else {
+        sessionStorage.clear();
+        const loginScr = $('loginScreen');
+        if (loginScr) loginScr.classList.remove('hidden');
+      }
+    } catch (e) {
+      console.warn("Auto login failed, showing login screen", e);
+      const localUsers = JSON.parse(localStorage.getItem('tc_users') || '[]');
+      const user = localUsers.find(x => x.username === creds.username);
+      if (user) {
+        state.currentUser = user;
+        const loginScr = $('loginScreen');
+        const mainAp = $('mainApp');
+        if (loginScr) loginScr.classList.add('hidden');
+        if (mainAp) mainAp.classList.remove('hidden');
+        onLogin();
+        runPolling();
+      } else {
+        sessionStorage.clear();
+        const loginScr = $('loginScreen');
+        if (loginScr) loginScr.classList.remove('hidden');
+      }
+    }
+  } else {
+    const loginScr = $('loginScreen');
+    if (loginScr) loginScr.classList.remove('hidden');
+  }
 })();
 // -------------------------------------------------------------
 // MODULE QUẢN LÝ ĐỘI XE & LÁI XE (FLEET MANAGEMENT MODULE)
